@@ -1,0 +1,82 @@
+{
+ "title": "Understanding Green's Theorem through Line and Double Integrals",
+ "scenes": [
+  {
+   "title": "Introduction to Green's Theorem",
+   "goal": "Understand the statement and purpose of Green's Theorem in converting line integrals into double integrals.",
+   "transcript_focus": "Explanation of Green's Theorem: its statement and how it simplifies the evaluation of line integrals by converting them into double integrals over a region.",
+   "key_terms": [
+    "Green's Theorem",
+    "line integral",
+    "double integral",
+    "closed curve",
+    "region"
+   ],
+   "misconceptions": [
+    "Believing Green's Theorem applies to open curves.",
+    "Confusing the roles of P and Q in the formula."
+   ]
+  },
+  {
+   "title": "Solving Line Integrals Using Green's Theorem",
+   "goal": "Learn how to apply Green's Theorem to solve a line integral over a circular path.",
+   "transcript_focus": "Demonstration of solving a line integral given a vector field and a circular path using Green's Theorem. The teacher explains the conversion of the line integral into a double integral and evaluates it step by step.",
+   "key_terms": [
+    "vector field",
+    "line integral",
+    "circular path",
+    "double integral",
+    "area of a circle"
+   ],
+   "misconceptions": [
+    "Forgetting to correctly differentiate Q with respect to x and P with respect to y.",
+    "Misinterpreting the area of the circular region."
+   ]
+  },
+  {
+   "title": "Verification of Green's Theorem",
+   "goal": "Understand how to verify Green's Theorem by solving the same problem using both line integrals and double integrals.",
+   "transcript_focus": "Explanation of verifying Green's Theorem by solving a problem using both line integrals and double integrals, and showing that the results match.",
+   "key_terms": [
+    "verification",
+    "line integral",
+    "double integral",
+    "matching results"
+   ],
+   "misconceptions": [
+    "Believing that the theorem is only valid in specific cases.",
+    "Not understanding the need to compute both integrals for verification."
+   ]
+  },
+  {
+   "title": "Green's Theorem for a Parabolic Region",
+   "goal": "Learn to apply Green's Theorem to a region bounded by parabolic curves.",
+   "transcript_focus": "Detailed solution of a problem where the region is bounded by a parabola and a line. The teacher explains how to set up the double integral limits and solve it using Green's Theorem.",
+   "key_terms": [
+    "parabolic region",
+    "double integral limits",
+    "line integral",
+    "Green's Theorem"
+   ],
+   "misconceptions": [
+    "Incorrectly setting up the limits for the double integral.",
+    "Assuming the region is rectangular instead of bounded by curves."
+   ]
+  },
+  {
+   "title": "Green's Theorem for a Rectangular Region",
+   "goal": "Apply Green's Theorem to a rectangular region and understand its application in symmetric cases.",
+   "transcript_focus": "The teacher explains a problem where the region is rectangular, showing how to compute both line integrals and double integrals to verify Green's Theorem. The symmetric nature of the problem is emphasized.",
+   "key_terms": [
+    "rectangular region",
+    "symmetry",
+    "line integral",
+    "double integral"
+   ],
+   "misconceptions": [
+    "Assuming symmetry guarantees a non-zero result.",
+    "Not considering all four sides of the rectangle in the line integral."
+   ]
+  }
+ ]
+}

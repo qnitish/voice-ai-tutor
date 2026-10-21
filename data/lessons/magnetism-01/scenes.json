@@ -1,0 +1,809 @@
+[
+ {
+  "steps": [
+   {
+    "say": "Hello bachcho! Aaj hum start karenge Physics Class 12 ka Chapter 4, Moving Charges and Magnetism. Pehle topic se shuruaat karte hain - Magnetic Field.",
+    "draw": [
+     {
+      "type": "text",
+      "id": "t1",
+      "x": 60.0,
+      "y": 90.0,
+      "text": "What is Magnetic Field?",
+      "size": "h1",
+      "color": "ink"
+     }
+    ]
+   },
+   {
+    "say": "Magnetic field ek aisi field hai jo current-carrying wire ke aas paas generate hoti hai. Chaliye ek experiment se samajhte hain.",
+    "draw": [
+     {
+      "type": "text",
+      "id": "t2",
+      "x": 60.0,
+      "y": 200.0,
+      "text": "Experiment: Magnetic Compass",
+      "size": "h2",
+      "color": "ink"
+     },
+     {
+      "type": "line",
+      "id": "l1",
+      "start": [
+       900.0,
+       300.0
+      ],
+      "end": [
+       1200.0,
+       300.0
+      ],
+      "color": "ink",
+      "dashed": false
+     },
+     {
+      "type": "arrow",
+      "id": "a1",
+      "start": [
+       900.0,
+       300.0
+      ],
+      "end": [
+       1200.0,
+       300.0
+      ],
+      "color": "blue",
+      "label": "I"
+     }
+    ]
+   },
+   {
+    "say": "Yeh ek current-carrying wire hai. Iske aas paas ek magnetic compass rakhte hain aur dekhte hain kya hota hai.",
+    "draw": [
+     {
+      "type": "circle",
+      "id": "c1",
+      "cx": 1050.0,
+      "cy": 300.0,
+      "r": 50.0,
+      "color": "green",
+      "filled": false,
+      "label": "Compass"
+     }
+    ]
+   },
+   {
+    "say": "Humne dekha ki compass ki needle deflect hoti hai. Iska matlab hai ki wire ke aas paas ek magnetic field generate hui hai.",
+    "draw": [
+     {
+      "type": "field_mark",
+      "id": "f1",
+      "x": 1050.0,
+      "y": 300.0,
+      "dir": "out",
+      "color": "blue"
+     },
+     {
+      "type": "field_mark",
+      "id": "f2",
+      "x": 1100.0,
+      "y": 300.0,
+      "dir": "out",
+      "color": "blue"
+     },
+     {
+      "type": "text",
+      "id": "t3",
+      "x": 60.0,
+      "y": 270.0,
+      "text": "Observation: Needle deflects",
+      "size": "body",
+      "color": "ink"
+     }
+    ]
+   },
+   {
+    "say": "Ab agar current ka direction reverse karte hain, to needle ka deflection bhi reverse ho jata hai. Yeh ek aur observation hai.",
+    "draw": [
+     {
+      "type": "arrow",
+      "id": "a2",
+      "start": [
+       1200.0,
+       300.0
+      ],
+      "end": [
+       900.0,
+       300.0
+      ],
+      "color": "blue",
+      "label": "-I"
+     },
+     {
+      "type": "highlight",
+      "id": "h1",
+      "target": "t3",
+      "color": "orange"
+     }
+    ]
+   },
+   {
+    "say": "To humne yeh samjha ki current-carrying wire apne aas paas magnetic field banata hai, aur iska direction current ke direction par depend karta hai.",
+    "draw": [
+     {
+      "type": "text",
+      "id": "t4",
+      "x": 60.0,
+      "y": 350.0,
+      "text": "Current → Magnetic Field",
+      "size": "body",
+      "color": "ink"
+     },
+     {
+      "type": "text",
+      "id": "t5",
+      "x": 60.0,
+      "y": 400.0,
+      "text": "Direction depends on current",
+      "size": "body",
+      "color": "ink"
+     }
+    ]
+   },
+   {
+    "say": "To bachcho, yeh tha introduction to magnetic field. Ab ek chhota sa sawal dekhte hain.",
+    "draw": []
+   }
+  ],
+  "check_question": {
+   "question": "If the current in a wire is reversed, what happens to the magnetic compass near it?",
+   "say": "Agar wire mein current ka direction reverse karte hain to uske paas rakhi magnetic compass par kya asar padega?",
+   "options": [
+    "Needle deflection reverses",
+    "Needle stops deflecting",
+    "Needle deflects more",
+    "No change in deflection"
+   ],
+   "correct_index": 0,
+   "concept": "Magnetic field direction reversal",
+   "explanation": "Reversing the current reverses the direction of the magnetic field, causing the compass needle to deflect in the opposite direction."
+  }
+ },
+ {
+  "steps": [
+   {
+    "say": "Ab hum samajhte hain ki Magnetic Field ek vector quantity kaise hoti hai.",
+    "draw": [
+     {
+      "type": "text",
+      "id": "t1",
+      "x": 60.0,
+      "y": 90.0,
+      "text": "Magnetic Field as a Vector Quantity",
+      "size": "h1",
+      "color": "ink"
+     }
+    ]
+   },
+   {
+    "say": "Magnetic field ka symbol hota hai B, jaise electric field ka symbol hota hai E.",
+    "draw": [
+     {
+      "type": "text",
+      "id": "t2",
+      "x": 60.0,
+      "y": 180.0,
+      "text": "Magnetic field ka symbol: B",
+      "size": "h2",
+      "color": "ink"
+     },
+     {
+      "type": "text",
+      "id": "t3",
+      "x": 60.0,
+      "y": 240.0,
+      "text": "Electric field ka symbol: E",
+      "size": "h2",
+      "color": "ink"
+     }
+    ]
+   },
+   {
+    "say": "Magnetic field bhi ek vector quantity hai, jaise electric field hoti hai.",
+    "draw": [
+     {
+      "type": "text",
+      "id": "t4",
+      "x": 60.0,
+      "y": 310.0,
+      "text": "Magnetic field is a vector quantity.",
+      "size": "body",
+      "color": "ink"
+     },
+     {
+      "type": "text",
+      "id": "t5",
+      "x": 60.0,
+      "y": 360.0,
+      "text": "Electric field is also a vector quantity.",
+      "size": "body",
+      "color": "ink"
+     }
+    ]
+   },
+   {
+    "say": "Vector quantity ka matlab hai ki iske paas magnitude aur direction dono hote hain.",
+    "draw": [
+     {
+      "type": "text",
+      "id": "t6",
+      "x": 60.0,
+      "y": 430.0,
+      "text": "Vector quantity = Magnitude + Direction",
+      "size": "body",
+      "color": "ink"
+     }
+    ]
+   },
+   {
+    "say": "Ab hum ek example se samajhte hain ki magnetic field kaise ek vector hoti hai.",
+    "draw": [
+     {
+      "type": "circle",
+      "id": "c1",
+      "cx": 1200.0,
+      "cy": 300.0,
+      "r": 50.0,
+      "color": "ink",
+      "filled": false,
+      "label": "Wire"
+     },
+     {
+      "type": "arrow",
+      "id": "a1",
+      "start": [
+       1200.0,
+       350.0
+      ],
+      "end": [
+       1200.0,
+       400.0
+      ],
+      "color": "blue",
+      "label": "I"
+     }
+    ]
+   },
+   {
+    "say": "Yeh ek current-carrying wire hai. Iske around magnetic field generate hota hai.",
+    "draw": [
+     {
+      "type": "circle",
+      "id": "c2",
+      "cx": 1200.0,
+      "cy": 300.0,
+      "r": 100.0,
+      "color": "green",
+      "filled": false,
+      "label": "B"
+     }
+    ]
+   },
+   {
+    "say": "Magnetic field ka direction current ke direction par depend karta hai.",
+    "draw": [
+     {
+      "type": "arrow",
+      "id": "a2",
+      "start": [
+       1250.0,
+       300.0
+      ],
+      "end": [
+       1300.0,
+       300.0
+      ],
+      "color": "blue",
+      "label": "Direction of B"
+     }
+    ]
+   },
+   {
+    "say": "To dekha, magnetic field ek vector quantity hai, kyunki iska ek direction hota hai.",
+    "draw": [
+     {
+      "type": "highlight",
+      "id": "h1",
+      "target": "t4",
+      "color": "orange"
+     }
+    ]
+   }
+  ],
+  "check_question": {
+   "question": "Magnetic field ek vector quantity kyun hoti hai?",
+   "say": "Magnetic field ek vector quantity kyun hoti hai?",
+   "options": [
+    "Kyunki uska magnitude aur direction hota hai",
+    "Kyunki woh scalar quantity hai",
+    "Kyunki woh ek field hai",
+    "Kyunki woh sirf current se banti hai"
+   ],
+   "correct_index": 0,
+   "concept": "Magnetic field as a vector quantity",
+   "explanation": "Magnetic field ek vector quantity hai kyunki uske paas magnitude aur direction dono hote hain."
+  }
+ },
+ {
+  "steps": [
+   {
+    "say": "Ab hum samajhte hain ki magnetic field ka effect moving charges par kaise hota hai.",
+    "draw": [
+     {
+      "type": "text",
+      "id": "t1",
+      "x": 60.0,
+      "y": 90.0,
+      "text": "Effect of Magnetic Field on Charges",
+      "size": "h1",
+      "color": "ink"
+     }
+    ]
+   },
+   {
+    "say": "Magnetic field stationary charges par koi force nahi lagata, par moving charges par lagata hai.",
+    "draw": [
+     {
+      "type": "text",
+      "id": "t2",
+      "x": 60.0,
+      "y": 180.0,
+      "text": "Stationary charge: No force",
+      "size": "body",
+      "color": "ink"
+     },
+     {
+      "type": "text",
+      "id": "t3",
+      "x": 60.0,
+      "y": 240.0,
+      "text": "Moving charge: Force acts",
+      "size": "body",
+      "color": "ink"
+     }
+    ]
+   },
+   {
+    "say": "Ek current-carrying wire ke paas ek charge rest mein rakhein to uspe koi force nahi lagegi.",
+    "draw": [
+     {
+      "type": "rect",
+      "id": "r1",
+      "x": 860.0,
+      "y": 180.0,
+      "w": 200.0,
+      "h": 50.0,
+      "color": "ink",
+      "label": "Wire"
+     },
+     {
+      "type": "circle",
+      "id": "c1",
+      "cx": 1100.0,
+      "cy": 205.0,
+      "r": 20.0,
+      "color": "ink",
+      "filled": false,
+      "label": "Charge"
+     }
+    ]
+   },
+   {
+    "say": "Agar wahi charge ko move karte hain, to magnetic field uspar force lagata hai aur wo deflect hota hai.",
+    "draw": [
+     {
+      "type": "arrow",
+      "id": "a1",
+      "start": [
+       1100.0,
+       205.0
+      ],
+      "end": [
+       1200.0,
+       205.0
+      ],
+      "color": "blue",
+      "label": "v"
+     },
+     {
+      "type": "line",
+      "id": "l1",
+      "start": [
+       1200.0,
+       205.0
+      ],
+      "end": [
+       1250.0,
+       250.0
+      ],
+      "color": "red",
+      "dashed": false
+     }
+    ]
+   },
+   {
+    "say": "Electric field stationary aur moving charges dono par force lagata hai, par magnetic field sirf moving charges par.",
+    "draw": [
+     {
+      "type": "text",
+      "id": "t4",
+      "x": 60.0,
+      "y": 300.0,
+      "text": "Electric field: Force on all charges",
+      "size": "body",
+      "color": "ink"
+     },
+     {
+      "type": "text",
+      "id": "t5",
+      "x": 60.0,
+      "y": 360.0,
+      "text": "Magnetic field: Force on moving charges",
+      "size": "body",
+      "color": "ink"
+     }
+    ]
+   },
+   {
+    "say": "To bachcho, magnetic field ka effect sirf moving charges par hota hai. Yeh ek important difference hai.",
+    "draw": [
+     {
+      "type": "highlight",
+      "id": "h1",
+      "target": "t5",
+      "color": "orange"
+     }
+    ]
+   }
+  ],
+  "check_question": {
+   "question": "Magnetic field kis par force lagata hai?",
+   "say": "Magnetic field kis par force lagata hai?",
+   "options": [
+    "Stationary charges",
+    "Moving charges",
+    "Stationary aur moving charges dono",
+    "Kisi par nahi"
+   ],
+   "correct_index": 1,
+   "concept": "Magnetic field affects moving charges",
+   "explanation": "Magnetic field acts only on moving charges, not stationary ones."
+  }
+ },
+ {
+  "steps": [
+   {
+    "say": "Ab hum Magnetic Field ki SI unit aur Magnetic Flux ke baare mein samajhte hain.",
+    "draw": [
+     {
+      "type": "text",
+      "id": "t1",
+      "x": 60.0,
+      "y": 90.0,
+      "text": "Units of Magnetic Field",
+      "size": "h1",
+      "color": "ink"
+     }
+    ]
+   },
+   {
+    "say": "Magnetic Field ki SI unit hoti hai Tesla, jise T se denote karte hain.",
+    "draw": [
+     {
+      "type": "text",
+      "id": "t2",
+      "x": 60.0,
+      "y": 200.0,
+      "text": "Magnetic Field ki SI unit: Tesla (T)",
+      "size": "h2",
+      "color": "ink"
+     }
+    ]
+   },
+   {
+    "say": "Ek aur unit hai, Newton per Ampere meter, yaani N by A meter.",
+    "draw": [
+     {
+      "type": "text",
+      "id": "t3",
+      "x": 60.0,
+      "y": 270.0,
+      "text": "Alternate unit: N/A·m",
+      "size": "body",
+      "color": "ink"
+     }
+    ]
+   },
+   {
+    "say": "Ab Magnetic Flux ki baat karte hain. Iski unit hoti hai Weber, jise W b se denote karte hain.",
+    "draw": [
+     {
+      "type": "text",
+      "id": "t4",
+      "x": 60.0,
+      "y": 340.0,
+      "text": "Magnetic Flux ki unit: Weber (Wb)",
+      "size": "h2",
+      "color": "ink"
+     }
+    ]
+   },
+   {
+    "say": "Magnetic Flux ko define karte hain B dot A ke roop mein, aur iski unit hoti hai Weber.",
+    "draw": [
+     {
+      "type": "text",
+      "id": "t5",
+      "x": 60.0,
+      "y": 410.0,
+      "text": "Flux: Φ = B·A",
+      "size": "body",
+      "color": "ink"
+     },
+     {
+      "type": "text",
+      "id": "t6",
+      "x": 60.0,
+      "y": 450.0,
+      "text": "Unit: Wb = T·m²",
+      "size": "body",
+      "color": "ink"
+     }
+    ]
+   },
+   {
+    "say": "Ab ek chhota example dekhte hain. Ek surface area hai jisme magnetic field pass kar rahi hai.",
+    "draw": [
+     {
+      "type": "rect",
+      "id": "r1",
+      "x": 860.0,
+      "y": 150.0,
+      "w": 200.0,
+      "h": 150.0,
+      "color": "ink",
+      "label": "A"
+     },
+     {
+      "type": "arrow",
+      "id": "a1",
+      "start": [
+       960.0,
+       300.0
+      ],
+      "end": [
+       960.0,
+       100.0
+      ],
+      "color": "blue",
+      "label": "B"
+     }
+    ]
+   },
+   {
+    "say": "Flux ko calculate karte hain B dot A se. Agar B ka magnitude ek Tesla hai aur area ek meter square hai, to flux hoga ek Weber.",
+    "draw": [
+     {
+      "type": "text",
+      "id": "t7",
+      "x": 860.0,
+      "y": 330.0,
+      "text": "Φ = B·A",
+      "size": "body",
+      "color": "ink"
+     },
+     {
+      "type": "text",
+      "id": "t8",
+      "x": 860.0,
+      "y": 370.0,
+      "text": "= 1 T × 1 m²",
+      "size": "body",
+      "color": "ink"
+     },
+     {
+      "type": "text",
+      "id": "t9",
+      "x": 860.0,
+      "y": 410.0,
+      "text": "= 1 Wb",
+      "size": "body",
+      "color": "ink"
+     }
+    ]
+   },
+   {
+    "say": "To bachcho, Magnetic Field ka unit Tesla hai aur Magnetic Flux ka unit Weber hai.",
+    "draw": [
+     {
+      "type": "highlight",
+      "id": "h1",
+      "target": "t2",
+      "color": "orange"
+     },
+     {
+      "type": "highlight",
+      "id": "h2",
+      "target": "t4",
+      "color": "orange"
+     }
+    ]
+   }
+  ],
+  "check_question": {
+   "question": "Magnetic field ki SI unit kya hai?",
+   "say": "Magnetic field ki SI unit kya hoti hai?",
+   "options": [
+    "Tesla",
+    "Newton",
+    "Weber",
+    "Ampere"
+   ],
+   "correct_index": 0,
+   "concept": "Magnetic Field Unit",
+   "explanation": "Magnetic field ki SI unit Tesla hoti hai."
+  }
+ },
+ {
+  "steps": [
+   {
+    "say": "Ab hum samajhte hain ki is chapter ka structure kya hai aur kaunse topics cover honge.",
+    "draw": [
+     {
+      "type": "text",
+      "id": "t1",
+      "x": 60.0,
+      "y": 90.0,
+      "text": "Chapter Structure",
+      "size": "h1",
+      "color": "ink"
+     }
+    ]
+   },
+   {
+    "say": "Yeh chapter start hota hai magnetic field ke generation se, jaise current-carrying wire ke aas paas field banti hai.",
+    "draw": [
+     {
+      "type": "text",
+      "id": "t2",
+      "x": 60.0,
+      "y": 180.0,
+      "text": "Field Generation",
+      "size": "h2",
+      "color": "ink"
+     },
+     {
+      "type": "circle",
+      "id": "c1",
+      "cx": 1000.0,
+      "cy": 300.0,
+      "r": 50.0,
+      "color": "blue",
+      "filled": false,
+      "label": "Wire"
+     },
+     {
+      "type": "field_mark",
+      "id": "f1",
+      "x": 1000.0,
+      "y": 300.0,
+      "dir": "out",
+      "color": "blue"
+     }
+    ]
+   },
+   {
+    "say": "Phir hum calculations seekhenge, jisme Biot-Savart Law aur Ampere's Circuital Law use hote hain.",
+    "draw": [
+     {
+      "type": "text",
+      "id": "t3",
+      "x": 60.0,
+      "y": 260.0,
+      "text": "Field Calculations",
+      "size": "h2",
+      "color": "ink"
+     },
+     {
+      "type": "text",
+      "id": "t4",
+      "x": 900.0,
+      "y": 400.0,
+      "text": "Biot-Savart Law",
+      "size": "body",
+      "color": "red"
+     },
+     {
+      "type": "text",
+      "id": "t5",
+      "x": 900.0,
+      "y": 460.0,
+      "text": "Ampere's Circuital Law",
+      "size": "body",
+      "color": "red"
+     }
+    ]
+   },
+   {
+    "say": "Aur chapter ke last part mein hum dekhenge ki magnetic field ka effect moving charges par kaise hota hai.",
+    "draw": [
+     {
+      "type": "text",
+      "id": "t6",
+      "x": 60.0,
+      "y": 340.0,
+      "text": "Effects on Moving Charges",
+      "size": "h2",
+      "color": "ink"
+     },
+     {
+      "type": "arrow",
+      "id": "a1",
+      "start": [
+       1000.0,
+       600.0
+      ],
+      "end": [
+       1100.0,
+       650.0
+      ],
+      "color": "green",
+      "label": "Force"
+     }
+    ]
+   },
+   {
+    "say": "To bachcho, yeh chapter magnetic field ki generation, calculation, aur effects par focus karega.",
+    "draw": [
+     {
+      "type": "highlight",
+      "id": "h1",
+      "target": "t1",
+      "color": "orange"
+     },
+     {
+      "type": "highlight",
+      "id": "h2",
+      "target": "t2",
+      "color": "orange"
+     },
+     {
+      "type": "highlight",
+      "id": "h3",
+      "target": "t3",
+      "color": "orange"
+     },
+     {
+      "type": "highlight",
+      "id": "h4",
+      "target": "t6",
+      "color": "orange"
+     }
+    ]
+   }
+  ],
+  "check_question": {
+   "question": "Which law helps calculate magnetic field due to a current-carrying wire?",
+   "say": "Kaunsa law magnetic field calculate karne mein madad karta hai current-carrying wire ke liye?",
+   "options": [
+    "Biot-Savart Law",
+    "Newton's Law",
+    "Faraday's Law",
+    "Ohm's Law"
+   ],
+   "correct_index": 0,
+   "concept": "Biot-Savart Law application",
+   "explanation": "Biot-Savart Law is used to calculate the magnetic field generated by a current-carrying wire."
+  }
+ }
+]

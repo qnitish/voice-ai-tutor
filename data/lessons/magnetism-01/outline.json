@@ -1,0 +1,75 @@
+{
+ "title": "Introduction to Moving Charges and Magnetism",
+ "scenes": [
+  {
+   "title": "What is Magnetic Field?",
+   "goal": "Understand the concept of a magnetic field and its generation by a current-carrying wire.",
+   "transcript_focus": "Explains the basic idea of magnetic fields, the experiment with a magnetic compass near a current-carrying wire, and the observation that reversing current direction reverses compass deflection.",
+   "key_terms": [
+    "Magnetic Field",
+    "Current-Carrying Wire",
+    "Compass Deflection"
+   ],
+   "misconceptions": [
+    "Magnetic field exists without current",
+    "Reversing current direction does not affect the magnetic field."
+   ]
+  },
+  {
+   "title": "Magnetic Field as a Vector Quantity",
+   "goal": "Recognize that magnetic field is a vector quantity and understand its representation.",
+   "transcript_focus": "Introduces the symbol 'B' for magnetic field, its vector nature, and draws a parallel with the electric field (symbol 'E').",
+   "key_terms": [
+    "Magnetic Field (B)",
+    "Vector Quantity",
+    "Electric Field (E)"
+   ],
+   "misconceptions": [
+    "Magnetic field is scalar",
+    "Magnetic field behaves identically to electric field."
+   ]
+  },
+  {
+   "title": "Effect of Magnetic Field on Charges",
+   "goal": "Differentiate between the effects of magnetic and electric fields on charges, particularly moving charges.",
+   "transcript_focus": "Discusses how magnetic fields act only on moving charges, unlike electric fields which act on both stationary and moving charges. Provides examples of charge deflection in magnetic fields.",
+   "key_terms": [
+    "Moving Charges",
+    "Force on Charges",
+    "Deflection"
+   ],
+   "misconceptions": [
+    "Magnetic field affects stationary charges",
+    "Force due to magnetic field is the same as electric field force."
+   ]
+  },
+  {
+   "title": "Units of Magnetic Field",
+   "goal": "Learn the SI unit of magnetic field and its relation to magnetic flux.",
+   "transcript_focus": "Defines the SI unit of magnetic field as Tesla (T) and introduces the concept of magnetic flux with its unit Weber (Wb).",
+   "key_terms": [
+    "Tesla (T)",
+    "Weber (Wb)",
+    "Magnetic Flux"
+   ],
+   "misconceptions": [
+    "Magnetic field has no specific unit",
+    "Magnetic flux and magnetic field are the same."
+   ]
+  },
+  {
+   "title": "Introduction to the Chapter Structure",
+   "goal": "Understand the structure of the chapter and the topics to be covered.",
+   "transcript_focus": "Outlines the progression of the chapter, starting with field generation, calculations, and later effects on moving charges. Mentions Biot-Savart Law and Ampere's Circuital Law.",
+   "key_terms": [
+    "Biot-Savart Law",
+    "Ampere's Circuital Law",
+    "Magnetic Field Calculations"
+   ],
+   "misconceptions": [
+    "Biot-Savart Law and Ampere's Circuital Law are unrelated",
+    "Magnetic field effects are independent of charge motion."
+   ]
+  }
+ ]
+}

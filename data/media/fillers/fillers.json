@@ -1,0 +1,22 @@
+[
+ {
+  "text": "Accha sawal!",
+  "audio_url": "/media/fillers/0.wav",
+  "duration_ms": 1120
+ },
+ {
+  "text": "Hmm, interesting sawal hai.",
+  "audio_url": "/media/fillers/1.wav",
+  "duration_ms": 2080
+ },
+ {
+  "text": "Ek second, sochne do.",
+  "audio_url": "/media/fillers/2.wav",
+  "duration_ms": 1920
+ },
+ {
+  "text": "Haan, bolo, main sun rahi hoon.",
+  "audio_url": "/media/fillers/3.wav",
+  "duration_ms": 2640
+ }
+]

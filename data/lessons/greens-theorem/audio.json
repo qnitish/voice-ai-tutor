@@ -1,0 +1,827 @@
+[
+ {
+  "steps": [
+   {
+    "say": "Hello students! Aaj hum Green's Theorem ke baare mein seekhne wale hain.",
+    "draw": [
+     {
+      "type": "text",
+      "id": "t1",
+      "x": 60.0,
+      "y": 90.0,
+      "text": "Introduction to Green's Theorem",
+      "size": "h1",
+      "color": "ink"
+     }
+    ],
+    "audio_url": "/media/lessons/greens-theorem/s0_0.wav",
+    "duration_ms": 4480
+   },
+   {
+    "say": "Green's Theorem ka purpose hai line integral ko double integral mein convert karna.",
+    "draw": [
+     {
+      "type": "text",
+      "id": "t2",
+      "x": 60.0,
+      "y": 180.0,
+      "text": "Line integral → Double integral",
+      "size": "h2",
+      "color": "ink"
+     }
+    ],
+    "audio_url": "/media/lessons/greens-theorem/s0_1.wav",
+    "duration_ms": 4560
+   },
+   {
+    "say": "Statement samajhte hain: agar P aur Q continuous functions hain bounded region mein, toh theorem yeh kehti hai.",
+    "draw": [
+     {
+      "type": "text",
+      "id": "t3",
+      "x": 60.0,
+      "y": 260.0,
+      "text": "∮C (P dx + Q dy) = ∬R (∂Q/∂x - ∂P/∂y) dx dy",
+      "size": "body",
+      "color": "ink"
+     }
+    ],
+    "audio_url": "/media/lessons/greens-theorem/s0_2.wav",
+    "duration_ms": 7200
+   },
+   {
+    "say": "Yeh theorem sirf closed curve ke liye valid hoti hai, open curve ke liye nahi.",
+    "draw": [
+     {
+      "type": "text",
+      "id": "t4",
+      "x": 60.0,
+      "y": 340.0,
+      "text": "Closed curve only",
+      "size": "body",
+      "color": "ink"
+     }
+    ],
+    "audio_url": "/media/lessons/greens-theorem/s0_3.wav",
+    "duration_ms": 4400
+   },
+   {
+    "say": "Diagram dekhiye: ek closed curve C aur region R ke liye theorem kaise kaam karti hai.",
+    "draw": [
+     {
+      "type": "circle",
+      "id": "c1",
+      "cx": 1100.0,
+      "cy": 450.0,
+      "r": 150.0,
+      "color": "ink",
+      "filled": false,
+      "label": "C"
+     },
+     {
+      "type": "rect",
+      "id": "r1",
+      "x": 950.0,
+      "y": 300.0,
+      "w": 300.0,
+      "h": 300.0,
+      "color": "ink",
+      "label": "R"
+     }
+    ],
+    "audio_url": "/media/lessons/greens-theorem/s0_4.wav",
+    "duration_ms": 5600
+   },
+   {
+    "say": "Green's Theorem line integral ko simplify karta hai by converting it into a double integral over region R.",
+    "draw": [
+     {
+      "type": "highlight",
+      "id": "h1",
+      "target": "t3",
+      "color": "orange"
+     }
+    ],
+    "audio_url": "/media/lessons/greens-theorem/s0_5.wav",
+    "duration_ms": 6240
+   },
+   {
+    "say": "Ab samajh gaye ki theorem ka main use kya hai? Ek chhota sawal karte hain!",
+    "draw": [],
+    "audio_url": "/media/lessons/greens-theorem/s0_6.wav",
+    "duration_ms": 4320
+   }
+  ],
+  "check_question": {
+   "question": "Green's Theorem applies to which type of curve?",
+   "say": "Green's Theorem kis type ke curve pe apply hoti hai?",
+   "options": [
+    "Closed curve",
+    "Open curve",
+    "Straight line",
+    "Infinite curve"
+   ],
+   "correct_index": 0,
+   "concept": "Closed curve requirement",
+   "explanation": "Green's Theorem is valid only for closed curves enclosing a region.",
+   "audio_url": "/media/lessons/greens-theorem/s0_check.wav"
+  }
+ },
+ {
+  "steps": [
+   {
+    "say": "Ab hum Green's Theorem ko use karke ek line integral solve karenge circular path par.",
+    "draw": [
+     {
+      "type": "text",
+      "id": "t1",
+      "x": 60.0,
+      "y": 90.0,
+      "text": "Solving Line Integrals Using Green's Theorem",
+      "size": "h1",
+      "color": "ink"
+     },
+     {
+      "type": "text",
+      "id": "t2",
+      "x": 60.0,
+      "y": 180.0,
+      "text": "Circular path: x² + y² = a²",
+      "size": "body",
+      "color": "ink"
+     },
+     {
+      "type": "circle",
+      "id": "c1",
+      "cx": 1200.0,
+      "cy": 450.0,
+      "r": 200.0,
+      "color": "ink",
+      "filled": false,
+      "label": "C"
+     }
+    ],
+    "audio_url": "/media/lessons/greens-theorem/s1_0.wav",
+    "duration_ms": 5680
+   },
+   {
+    "say": "Vector field F diya hai: F equals sin y i plus x plus cos y j. Solve karte hain line integral F dot d r.",
+    "draw": [
+     {
+      "type": "text",
+      "id": "t3",
+      "x": 60.0,
+      "y": 250.0,
+      "text": "F = sin y i + (x + cos y) j",
+      "size": "body",
+      "color": "ink"
+     },
+     {
+      "type": "text",
+      "id": "t4",
+      "x": 60.0,
+      "y": 310.0,
+      "text": "Line integral: ∮ F · dr",
+      "size": "body",
+      "color": "ink"
+     }
+    ],
+    "audio_url": "/media/lessons/greens-theorem/s1_1.wav",
+    "duration_ms": 8480
+   },
+   {
+    "say": "Green's Theorem kehta hai ki line integral ko double integral mein convert kar sakte hain.",
+    "draw": [
+     {
+      "type": "text",
+      "id": "t5",
+      "x": 60.0,
+      "y": 370.0,
+      "text": "∮ F · dr = ∬ (∂Q/∂x - ∂P/∂y) dx dy",
+      "size": "body",
+      "color": "ink"
+     },
+     {
+      "type": "highlight",
+      "id": "h1",
+      "target": "t5",
+      "color": "orange"
+     }
+    ],
+    "audio_url": "/media/lessons/greens-theorem/s1_2.wav",
+    "duration_ms": 5520
+   },
+   {
+    "say": "Yaha P hai sin y aur Q hai x plus cos y. Ab derivatives nikalte hain.",
+    "draw": [
+     {
+      "type": "text",
+      "id": "t6",
+      "x": 60.0,
+      "y": 430.0,
+      "text": "P = sin y, Q = x + cos y",
+      "size": "body",
+      "color": "ink"
+     },
+     {
+      "type": "text",
+      "id": "t7",
+      "x": 60.0,
+      "y": 490.0,
+      "text": "∂Q/∂x = 1, ∂P/∂y = cos y",
+      "size": "body",
+      "color": "ink"
+     }
+    ],
+    "audio_url": "/media/lessons/greens-theorem/s1_3.wav",
+    "duration_ms": 5200
+   },
+   {
+    "say": "Double integral banega: ∬ (1 - cos y) dx dy. Solve karte hain region ke area ke liye.",
+    "draw": [
+     {
+      "type": "text",
+      "id": "t8",
+      "x": 60.0,
+      "y": 550.0,
+      "text": "Area of circle: π a²",
+      "size": "body",
+      "color": "ink"
+     },
+     {
+      "type": "highlight",
+      "id": "h2",
+      "target": "t8",
+      "color": "orange"
+     }
+    ],
+    "audio_url": "/media/lessons/greens-theorem/s1_4.wav",
+    "duration_ms": 8160
+   },
+   {
+    "say": "Final answer hai π a², jo circle ke area ke equal hai. Green's Theorem se solve ho gaya.",
+    "draw": [
+     {
+      "type": "text",
+      "id": "t9",
+      "x": 60.0,
+      "y": 610.0,
+      "text": "Answer: π a²",
+      "size": "body",
+      "color": "green"
+     }
+    ],
+    "audio_url": "/media/lessons/greens-theorem/s1_5.wav",
+    "duration_ms": 6480
+   }
+  ],
+  "check_question": {
+   "question": "What does Green's Theorem convert a line integral into?",
+   "say": "Green's Theorem line integral ko kis mein convert karta hai?",
+   "options": [
+    "Double integral over a region",
+    "Single integral",
+    "Triple integral",
+    "Surface area calculation"
+   ],
+   "correct_index": 0,
+   "concept": "Green's Theorem conversion",
+   "explanation": "Green's Theorem converts a line integral into a double integral over the enclosed region.",
+   "audio_url": "/media/lessons/greens-theorem/s1_check.wav"
+  }
+ },
+ {
+  "steps": [
+   {
+    "say": "Ab hum Green's Theorem ko verify karenge by solving ek problem using both line integral aur double integral.",
+    "draw": [
+     {
+      "type": "text",
+      "id": "t1",
+      "x": 60.0,
+      "y": 90.0,
+      "text": "Verification of Green's Theorem",
+      "size": "h1",
+      "color": "ink"
+     },
+     {
+      "type": "text",
+      "id": "t2",
+      "x": 60.0,
+      "y": 180.0,
+      "text": "Verify Green's Theorem for circular path.",
+      "size": "body",
+      "color": "ink"
+     }
+    ],
+    "audio_url": "/media/lessons/greens-theorem/s2_0.wav",
+    "duration_ms": 6880
+   },
+   {
+    "say": "Line integral solve karte hain vector field F dot d r ke liye. F diya hai: sin y i plus x plus cos y j.",
+    "draw": [
+     {
+      "type": "text",
+      "id": "t3",
+      "x": 60.0,
+      "y": 270.0,
+      "text": "F = sin y i + (x + cos y) j",
+      "size": "body",
+      "color": "ink"
+     },
+     {
+      "type": "text",
+      "id": "t4",
+      "x": 60.0,
+      "y": 312.0,
+      "text": "Line integral: ∮ F · dr",
+      "size": "body",
+      "color": "ink"
+     }
+    ],
+    "audio_url": "/media/lessons/greens-theorem/s2_1.wav",
+    "duration_ms": 8960
+   },
+   {
+    "say": "Green's Theorem kehta hai ki line integral ko double integral mein convert kar sakte hain.",
+    "draw": [
+     {
+      "type": "text",
+      "id": "t5",
+      "x": 60.0,
+      "y": 354.0,
+      "text": "Double integral: ∬ (∂Q/∂x - ∂P/∂y) dx dy",
+      "size": "body",
+      "color": "ink"
+     },
+     {
+      "type": "text",
+      "id": "t6",
+      "x": 60.0,
+      "y": 396.0,
+      "text": "P = sin y, Q = x + cos y",
+      "size": "body",
+      "color": "ink"
+     }
+    ],
+    "audio_url": "/media/lessons/greens-theorem/s2_2.wav",
+    "duration_ms": 4800
+   },
+   {
+    "say": "Derivatives nikalte hain. ∂Q/∂x hai one aur ∂P/∂y hai cos y.",
+    "draw": [
+     {
+      "type": "text",
+      "id": "t7",
+      "x": 60.0,
+      "y": 438.0,
+      "text": "∂Q/∂x = 1, ∂P/∂y = cos y",
+      "size": "body",
+      "color": "ink"
+     },
+     {
+      "type": "text",
+      "id": "t8",
+      "x": 60.0,
+      "y": 480.0,
+      "text": "Double integral: ∬ (1 - cos y) dx dy",
+      "size": "body",
+      "color": "ink"
+     }
+    ],
+    "audio_url": "/media/lessons/greens-theorem/s2_3.wav",
+    "duration_ms": 5600
+   },
+   {
+    "say": "Region R circular hai, toh area of circle use karte hain. Answer hai π a².",
+    "draw": [
+     {
+      "type": "circle",
+      "id": "c1",
+      "cx": 1200.0,
+      "cy": 300.0,
+      "r": 120.0,
+      "color": "blue",
+      "filled": false,
+      "label": "R"
+     },
+     {
+      "type": "text",
+      "id": "t9",
+      "x": 1170.0,
+      "y": 450.0,
+      "text": "Area = π a²",
+      "size": "body",
+      "color": "ink"
+     }
+    ],
+    "audio_url": "/media/lessons/greens-theorem/s2_4.wav",
+    "duration_ms": 5840
+   },
+   {
+    "say": "Line integral aur double integral dono ka answer match karta hai: π a². Green's Theorem verified!",
+    "draw": [
+     {
+      "type": "highlight",
+      "id": "h1",
+      "target": "t8",
+      "color": "orange"
+     },
+     {
+      "type": "highlight",
+      "id": "h2",
+      "target": "t9",
+      "color": "orange"
+     }
+    ],
+    "audio_url": "/media/lessons/greens-theorem/s2_5.wav",
+    "duration_ms": 6960
+   }
+  ],
+  "check_question": {
+   "question": "What does Green's Theorem verify in this example?",
+   "say": "Green's Theorem kis cheez ko verify karta hai is example mein?",
+   "options": [
+    "Line integral equals double integral",
+    "Area of circle is π a²",
+    "Vector field continuity",
+    "Curve is open"
+   ],
+   "correct_index": 0,
+   "concept": "Verification of Green's Theorem",
+   "explanation": "Green's Theorem converts line integral to double integral, and their results match.",
+   "audio_url": "/media/lessons/greens-theorem/s2_check.wav"
+  }
+ },
+ {
+  "steps": [
+   {
+    "say": "Ab hum Green's Theorem ko parabolic region ke liye apply karna seekhenge.",
+    "draw": [
+     {
+      "type": "text",
+      "id": "t1",
+      "x": 60.0,
+      "y": 90.0,
+      "text": "Green's Theorem for a Parabolic Region",
+      "size": "h1",
+      "color": "ink"
+     }
+    ],
+    "audio_url": "/media/lessons/greens-theorem/s3_0.wav",
+    "duration_ms": 4240
+   },
+   {
+    "say": "Consider ek region jo do parabolas se bounded hai: y equals x square aur y square equals x.",
+    "draw": [
+     {
+      "type": "text",
+      "id": "t2",
+      "x": 60.0,
+      "y": 200.0,
+      "text": "Region bounded by:",
+      "size": "h2",
+      "color": "ink"
+     },
+     {
+      "type": "text",
+      "id": "t3",
+      "x": 60.0,
+      "y": 260.0,
+      "text": "y = x² and y² = x",
+      "size": "body",
+      "color": "ink"
+     },
+     {
+      "type": "line",
+      "id": "l1",
+      "start": [
+       860.0,
+       700.0
+      ],
+      "end": [
+       1400.0,
+       700.0
+      ],
+      "color": "ink",
+      "dashed": false
+     },
+     {
+      "type": "line",
+      "id": "l2",
+      "start": [
+       860.0,
+       700.0
+      ],
+      "end": [
+       860.0,
+       100.0
+      ],
+      "color": "ink",
+      "dashed": false
+     },
+     {
+      "type": "line",
+      "id": "l3",
+      "start": [
+       860.0,
+       700.0
+      ],
+      "end": [
+       1400.0,
+       100.0
+      ],
+      "color": "blue",
+      "dashed": true
+     },
+     {
+      "type": "line",
+      "id": "l4",
+      "start": [
+       860.0,
+       100.0
+      ],
+      "end": [
+       1400.0,
+       700.0
+      ],
+      "color": "red",
+      "dashed": true
+     },
+     {
+      "type": "text",
+      "id": "t4",
+      "x": 1420.0,
+      "y": 100.0,
+      "text": "y² = x",
+      "size": "small",
+      "color": "ink"
+     },
+     {
+      "type": "text",
+      "id": "t5",
+      "x": 1420.0,
+      "y": 700.0,
+      "text": "y = x²",
+      "size": "small",
+      "color": "ink"
+     }
+    ],
+    "audio_url": "/media/lessons/greens-theorem/s3_1.wav",
+    "duration_ms": 7520
+   },
+   {
+    "say": "Is region ke liye Green's Theorem ke hisaab se line integral ko double integral mein convert karte hain.",
+    "draw": [
+     {
+      "type": "text",
+      "id": "t6",
+      "x": 60.0,
+      "y": 330.0,
+      "text": "∮C P dx + Q dy =",
+      "size": "h2",
+      "color": "ink"
+     },
+     {
+      "type": "text",
+      "id": "t7",
+      "x": 60.0,
+      "y": 390.0,
+      "text": "∬R (∂Q/∂x - ∂P/∂y) dx dy",
+      "size": "body",
+      "color": "ink"
+     }
+    ],
+    "audio_url": "/media/lessons/greens-theorem/s3_2.wav",
+    "duration_ms": 6000
+   },
+   {
+    "say": "Yahaan P aur Q ke values hain P equals minus six x aur Q equals sixteen y.",
+    "draw": [
+     {
+      "type": "text",
+      "id": "t8",
+      "x": 60.0,
+      "y": 460.0,
+      "text": "P = -6x, Q = 16y",
+      "size": "body",
+      "color": "ink"
+     }
+    ],
+    "audio_url": "/media/lessons/greens-theorem/s3_3.wav",
+    "duration_ms": 6080
+   },
+   {
+    "say": "Ab derivatives nikalte hain: del Q by del x zero hoga aur del P by del y bhi zero hoga.",
+    "draw": [
+     {
+      "type": "text",
+      "id": "t9",
+      "x": 60.0,
+      "y": 530.0,
+      "text": "∂Q/∂x = 0, ∂P/∂y = 0",
+      "size": "body",
+      "color": "ink"
+     }
+    ],
+    "audio_url": "/media/lessons/greens-theorem/s3_4.wav",
+    "duration_ms": 6400
+   },
+   {
+    "say": "To double integral ka result zero hoga, aur line integral bhi zero hai.",
+    "draw": [
+     {
+      "type": "text",
+      "id": "t10",
+      "x": 60.0,
+      "y": 600.0,
+      "text": "∬R (0 - 0) dx dy = 0",
+      "size": "body",
+      "color": "ink"
+     }
+    ],
+    "audio_url": "/media/lessons/greens-theorem/s3_5.wav",
+    "duration_ms": 5360
+   }
+  ],
+  "check_question": {
+   "question": "What is the result of the line integral ∮C P dx + Q dy for the region bounded by y = x² and y² = x?",
+   "say": "Line integral ka result kya hoga region bounded by y equals x square aur y square equals x ke liye?",
+   "options": [
+    "Zero",
+    "Sixteen",
+    "Minus six",
+    "Cannot be determined"
+   ],
+   "correct_index": 0,
+   "concept": "Line integral using Green's Theorem",
+   "explanation": "The double integral evaluates to zero, so the line integral is also zero by Green's Theorem.",
+   "audio_url": "/media/lessons/greens-theorem/s3_check.wav"
+  }
+ },
+ {
+  "steps": [
+   {
+    "say": "Ab hum Green's Theorem ko ek rectangular region ke liye apply karenge. Pehle title likh lete hain.",
+    "draw": [
+     {
+      "type": "text",
+      "id": "t1",
+      "x": 60.0,
+      "y": 90.0,
+      "text": "Green's Theorem for a Rectangular Region",
+      "size": "h1",
+      "color": "ink"
+     }
+    ],
+    "audio_url": "/media/lessons/greens-theorem/s4_0.wav",
+    "duration_ms": 6000
+   },
+   {
+    "say": "Green's Theorem kehta hai ki line integral ko double integral mein convert kar sakte hain. Rectangular region ke liye isko samajhte hain.",
+    "draw": [
+     {
+      "type": "text",
+      "id": "t2",
+      "x": 60.0,
+      "y": 180.0,
+      "text": "∮C (P dx + Q dy) = ∬R (∂Q/∂x - ∂P/∂y) dx dy",
+      "size": "h2",
+      "color": "ink"
+     }
+    ],
+    "audio_url": "/media/lessons/greens-theorem/s4_1.wav",
+    "duration_ms": 7760
+   },
+   {
+    "say": "Consider ek rectangle jo x equals zero se one aur y equals zero se one tak bounded hai. Diagram banate hain.",
+    "draw": [
+     {
+      "type": "rect",
+      "id": "r1",
+      "x": 860.0,
+      "y": 200.0,
+      "w": 300.0,
+      "h": 300.0,
+      "color": "ink",
+      "label": "R"
+     },
+     {
+      "type": "arrow",
+      "id": "a1",
+      "start": [
+       860.0,
+       200.0
+      ],
+      "end": [
+       1160.0,
+       200.0
+      ],
+      "color": "blue",
+      "label": "x"
+     },
+     {
+      "type": "arrow",
+      "id": "a2",
+      "start": [
+       860.0,
+       200.0
+      ],
+      "end": [
+       860.0,
+       500.0
+      ],
+      "color": "blue",
+      "label": "y"
+     }
+    ],
+    "audio_url": "/media/lessons/greens-theorem/s4_2.wav",
+    "duration_ms": 7600
+   },
+   {
+    "say": "Ab hum vector field F consider karte hain: F equals x square i plus y square j. Yaha P hai x square aur Q hai y square.",
+    "draw": [
+     {
+      "type": "text",
+      "id": "t3",
+      "x": 60.0,
+      "y": 250.0,
+      "text": "F = x² i + y² j",
+      "size": "h2",
+      "color": "ink"
+     },
+     {
+      "type": "text",
+      "id": "t4",
+      "x": 60.0,
+      "y": 310.0,
+      "text": "P = x², Q = y²",
+      "size": "h2",
+      "color": "ink"
+     }
+    ],
+    "audio_url": "/media/lessons/greens-theorem/s4_3.wav",
+    "duration_ms": 10480
+   },
+   {
+    "say": "Green's Theorem ke hisaab se, ∂Q/∂x aur ∂P/∂y nikalte hain. Dono zero hain, kyunki y aur x ke respect mein differentiation zero hai.",
+    "draw": [
+     {
+      "type": "text",
+      "id": "t5",
+      "x": 60.0,
+      "y": 370.0,
+      "text": "∂Q/∂x = 0, ∂P/∂y = 0",
+      "size": "h2",
+      "color": "ink"
+     }
+    ],
+    "audio_url": "/media/lessons/greens-theorem/s4_4.wav",
+    "duration_ms": 11840
+   },
+   {
+    "say": "Agar ∂Q/∂x aur ∂P/∂y zero hain, toh double integral ka result bhi zero hoga. Line integral bhi zero hoga.",
+    "draw": [
+     {
+      "type": "text",
+      "id": "t6",
+      "x": 60.0,
+      "y": 430.0,
+      "text": "∬R (∂Q/∂x - ∂P/∂y) dx dy = 0",
+      "size": "h2",
+      "color": "ink"
+     }
+    ],
+    "audio_url": "/media/lessons/greens-theorem/s4_5.wav",
+    "duration_ms": 9840
+   },
+   {
+    "say": "Iska matlab line integral aur double integral dono ke answers match karte hain. Green's Theorem verify hoti hai.",
+    "draw": [
+     {
+      "type": "highlight",
+      "id": "h1",
+      "target": "t2",
+      "color": "orange"
+     }
+    ],
+    "audio_url": "/media/lessons/greens-theorem/s4_6.wav",
+    "duration_ms": 6800
+   }
+  ],
+  "check_question": {
+   "question": "For a rectangular region 0 ≤ x ≤ 1, 0 ≤ y ≤ 1, and F = x² i + y² j, what is the value of the line integral ∮C F · dr?",
+   "say": "Ek rectangular region ke liye, jisme x zero se one aur y zero se one hai, aur vector field F equals x square i plus y square j hai, line integral F dot d r ka value kya hoga?",
+   "options": [
+    "Zero",
+    "One",
+    "Two",
+    "Four"
+   ],
+   "correct_index": 0,
+   "concept": "Green's Theorem for rectangular region",
+   "explanation": "Since ∂Q/∂x - ∂P/∂y is zero, the double integral and hence the line integral is also zero.",
+   "audio_url": "/media/lessons/greens-theorem/s4_check.wav"
+  }
+ }
+]
