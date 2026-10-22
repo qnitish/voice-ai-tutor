@@ -57,9 +57,11 @@ Scene rules:
   repeat what earlier scenes already taught (their narration is given to you).
 - Each step has 1 to 4 draw actions that show exactly what that step says. Build the board up step by step.
   Never draw an item that is already on the board again; point at it with a highlight instead.
-- Teach from the lecture transcript; stay faithful to its physics and the teacher's explanations.
+- Teach ONLY what the lecture transcript teaches; stay faithful to the teacher's explanations, terms and formulas.
+  Do not add rules, facts or special cases the lecture does not cover, even if you know them.
 - Include one small example or diagram where it helps.
-- End with a check question: a multiple-choice question (4 options) testing this scene's idea.
+- End with a check question: a multiple-choice question (4 options) testing something THIS scene's narration taught,
+  with exactly one correct option. Double-check that the correct option is right.
 
 Return JSON only:
 {{"steps": [{{"say": "...", "draw": [...]}}],
@@ -84,11 +86,17 @@ Choose one intent:
 - "confused": the student did not understand what was just explained ("samajh nahi aaya", "yeh kaise hua?").
   It is re-explained right away in a different way.
 - "repeat": the student only wants to hear the last part again ("phir se bolo", "dobara sunao", "slow bolo").
+- "continue": the student says they understood or wants to move on ("clear hai", "samajh gaya", "aage chalo",
+  "next"), with no question.
 - "off_topic": not about this lesson or its prerequisites.
 - "unclear": empty, noise, or not understandable.
 
 "confidence": 0 to 1, how sure you are of BOTH the intent and your rewritten question. Use below 0.6 when the
 speech-to-text is garbled and you had to guess what the student meant.
+
+If a "Check question on screen" is given, the student is talking about it after answering it wrong. Its options are
+lettered A to D; the student may say "B", "option two", "point two", "doosra wala". Name the option they mean in the
+rewritten question. If you cannot tell which option or which part they mean, use confidence below 0.6.
 
 Return JSON only:
 {{"intent": "...", "question": "the doubt rewritten clearly in Hinglish (Roman script)", "confidence": 0.9,
@@ -111,10 +119,20 @@ By intent:
   to the current point in one line ("ab isi ko hum yahan use kar rahe hain").
 - "confused": re-explain the point from the narration so far in a DIFFERENT way, with a NEW, simpler example.
 These two are played in the middle of the lesson, so keep them to exactly 3 lines.
+If "Student's check answers" are given, the student just got that check question wrong and is telling you where
+they got stuck: name the mistake behind the option(s) they picked, then explain the right idea.
+If the doubt is a yes/no question ("kya yeh sahi hai?"), the first spoken line starts with "Haan" or "Nahi" and
+answers exactly that.
+If the doubt repeats one of the "Earlier doubts in this session", the earlier answer did not work: say so in a few
+words ("Chalo, isko seedhe shabdon mein dekhte hain"), answer the exact question directly, and use a different example.
 
-Output format: NDJSON. Write 3 or 4 separate JSON objects, each on its own line, nothing else
-(no code fences, no blank lines, no wrapping array). Each line is ONE short spoken sentence plus at most
-3 draw actions, because each line is spoken as soon as it is written. Example of the shape:
+Output format: NDJSON, one JSON object per line, nothing else (no code fences, no blank lines, no wrapping array).
+The FIRST line is {{"source": "..."}}: in one or two sentences, what the lecture transcript says about this doubt,
+including the teacher's own rule or formula if there is one, or "not in the lecture". It is not spoken. Every spoken
+line must agree with it; when the teacher gives a rule or formula, use exactly that.
+Then write 3 or 4 spoken lines. Each is ONE short spoken sentence plus at most 3 draw actions, because each line is
+spoken as soon as it is written. Example of the shape:
+{{"source": "Teacher: current badhne par magnetic field badhti hai (B is proportional to I)."}}
 {{"say": "Haan, current badhega toh magnetic field bhi badhegi.", "draw": [{{"type":"text","id":"t1","x":60,"y":80,"text":"Current ↑ → B ↑","size":"h2","color":"ink"}}]}}
 {{"say": "Dekho, yeh wire hai aur iske paas compass rakha hai.", "draw": [{{"type":"line","id":"l1","start":[900,250],"end":[900,650],"color":"ink","dashed":false}}, {{"type":"circle","id":"c1","cx":1100,"cy":450,"r":45,"color":"blue","filled":false,"label":"compass"}}]}}
 {{"say": "Batao, agar current zero kar dein toh needle ka kya hoga?", "draw": [{{"type":"text","id":"t2","x":60,"y":200,"text":"I = 0 → ?","size":"body","color":"red"}}]}}
@@ -128,6 +146,9 @@ The last line checks understanding with a small question back to the student.
 SUMMARY_SYSTEM = f"""\
 You close a tutoring session. Given the lesson, the student's doubts and their check-question results,
 write a short spoken recap and what to revise.
+A check result may also show a second try after a hint ("retry_correct") and a later question on the same concept
+("twin_correct"); null means not attempted. Getting it right later counts as progress, so praise that.
+"twin_skipped" and "skipped_checks" (scene indexes) are questions the student skipped: suggest revising those.
 
 Return JSON only:
 {{"lines": ["2 to 4 speakable sentences: recap, praise something specific, what to revise"],
@@ -135,6 +156,118 @@ Return JSON only:
   "revise": ["short on-screen revision points (may use maths symbols)"]}}
 
 {SPEECH_RULES}"""
+
+
+REMEDY_SYSTEM = f"""\
+A student answered a whiteboard lesson's check question wrong. You write what the tutor says and draws to help them.
+You are given the lecture transcript, the scene (title, goal, common misconceptions, its narration) and the check
+question with its options and the correct option index. Stay faithful to the lecture; do not add facts it does not
+support.
+
+Return JSON only:
+{{"why_wrong": [{{"option": 1, "hint": "..."}}],
+  "reteach": [{{"say": "...", "draw": [...]}}],
+  "twin": {{"question": "a NEW question on the same concept (may use maths symbols)",
+           "say": "the twin question as the tutor speaks it, no options", "options": ["...", "...", "...", "..."],
+           "correct_index": 0, "explanation": "one-line explanation of its right answer"}}}}
+
+- "why_wrong": one entry for EACH wrong option (none for the correct one), "option" being its index as given.
+  The hint is 1-2 sentences spoken right after the student picks it. Say which misconception
+  probably led to that pick ("Lagta hai tumne socha ki ..."), and gently why it does not hold. Never name the correct
+  option, never use its words, and never state the fact that directly gives it away; the student must still think.
+  End with "Ek baar phir socho."
+- "reteach": 2 to 3 steps that explain the scene's idea again in a DIFFERENT way from the narration, with a new
+  simple example, on a fresh blank board. Step 1 writes a short heading (h2 at x=60, y=80). Do not give away the
+  check question's answer by its letter; explain the idea so the answer becomes obvious.
+- "twin": tests the same concept with different numbers, situation or wording; never the same question reworded.
+  4 options, exactly one of them correct, only about what the lecture teaches. "say" starts with "Chalo, pichle concept pe ek aur sawal."
+
+{SPEECH_RULES}
+
+{DRAW_SPEC}"""
+
+REVIEW_SYSTEM = f"""\
+You are a strict subject-matter reviewer (an expert teacher of this subject) checking one scene of a lesson that was
+generated from a recorded lecture, before it is narrated to students. Wrong content is worse than no content.
+
+You get the lecture transcript (speech-to-text, may have recognition errors), the scene's narration and its
+multiple-choice check question with the index of the option marked correct. Check:
+1. The marked option is really correct, by the subject's standard rules AND consistent with the lecture.
+2. Exactly one option is correct; no other option is also defensible.
+3. The question tests something the lecture and this scene's narration actually teach.
+4. The explanation is true.
+5. The narration states nothing false (list problems; do not rewrite the narration).
+
+Return JSON only:
+{{"issues": ["each problem found in the check question, empty if none"],
+  "narration_issues": ["step N: the false statement and the correct fact, empty if none"],
+  "check_question": {{the check question with the same keys, unchanged if it has no issues, otherwise corrected: fix
+                     the options, correct_index and explanation, or replace it with a question on what this scene teaches}}}}
+
+The check question's "say" follows these rules:
+{SPEECH_RULES}"""
+
+REMEDY_REVIEW_SYSTEM = f"""\
+You are a strict subject-matter reviewer checking the help a tutor gives after a wrong answer to a check question:
+a hint per wrong option ("why_wrong"), a re-teach ("reteach") and a follow-up question on the same concept ("twin").
+You get the lecture transcript, the check question with its correct option, and the help. Check:
+1. No hint names the correct option, uses its words, or states the fact that directly gives it away.
+2. Every hint, re-teach step and the twin's explanation is true and consistent with the lecture.
+3. The twin has exactly one correct option, its correct_index is right, it tests the SAME concept as the check
+   question, and it is not the check question reworded.
+Only correct what is wrong. Content that is true but not in the lecture may stay; the transcript is long and has
+recognition errors, so do not assume the lecture skips a topic. Spoken text is for the student: never mention the
+lecture, the transcript or this review in it.
+
+Return JSON only:
+{{"issues": ["each problem found, empty if none"],
+  "remedy": {{the help with the same keys ("why_wrong", "reteach", "twin"), unchanged if fine, otherwise corrected}}}}
+
+Every spoken text follows these rules:
+{SPEECH_RULES}
+
+{DRAW_SPEC}"""
+
+# ---- voice gender: prompts and fixed lines above are written for the default female voice ----
+
+FEMALE_RULE = '- The tutor\'s voice is female, so use feminine first-person verbs ("main batati hoon", "samjhati hoon").'
+MALE_RULE = '- The tutor\'s voice is male, so use masculine first-person verbs ("main batata hoon", "samjhata hoon").'
+# Fixed lines with a first-person verb, and their male form
+MALE_LINES = {
+    "Accha sawal hai! Yeh point khatam karke main iska jawab deti hoon.": "Accha sawal hai! Yeh point khatam karke main iska jawab deta hoon.",
+    "Koi baat nahi, isko ek aur tarike se samjhati hoon.": "Koi baat nahi, isko ek aur tarike se samjhata hoon.",
+    "Haan, yeh hissa phir se sunati hoon.": "Haan, yeh hissa phir se sunata hoon.",
+    "Haan, bolo, main sun rahi hoon.": "Haan, bolo, main sun raha hoon.",
+}
+
+
+def for_gender(system: str, gender: str) -> str:
+    """A system prompt for the lesson's voice."""
+    if gender == "female":
+        return system
+    return system.replace(FEMALE_RULE, MALE_RULE).replace("what she draws", "what he draws")
+
+
+def line_for(text: str, gender: str) -> str:
+    """A fixed spoken line for the lesson's voice."""
+    return MALE_LINES.get(text, text) if gender == "male" else text
+
+
+# Feedback on check answers. Fixed lines, so their audio is cached and plays instantly.
+CHECK_LINES = {
+    "correct": "Bilkul sahi! Shabaash.",
+    "wrong_try_again": "Hmm, yeh sahi nahi hai.",
+    "retry_correct": "Haan, ab bilkul sahi! Bahut accha socha.",
+    "twin_correct": "Bilkul sahi! Ab yeh concept pakka ho gaya.",
+}
+
+
+def reveal_line(correct_index: int) -> str:
+    return f"Hmm, yeh sahi nahi hai. Sahi jawab option {'ABCD'[correct_index]} hai."
+
+
+# Played after the re-teach, while the mic is open for "where did it go wrong"
+CHECK_FOLLOWUP = "Batao, kis part mein confusion hua tha? Mic dabake bolo, ya aage chalte hain."
 
 
 # Spoken right after a doubt is routed. Fixed lines, so their audio is cached and plays instantly.
@@ -146,6 +279,7 @@ FIXED_ACKS = {
     "repeat": "Haan, yeh hissa phir se sunati hoon.",
     "unclear": "Sorry, mujhe theek se sunai nahi diya. Ek baar phir se bologe?",
     "off_topic": "Hmm, chalo pehle apna lesson continue karte hain.",
+    "continue": "Theek hai, aage chalte hain.",
 }
 
 

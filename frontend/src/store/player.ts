@@ -32,8 +32,17 @@ export interface DoubtView {
 
 export interface CheckView {
   sceneIdx: number
+  /** The scene's twin question, asked a scene later, instead of its own check */
+  twin: boolean
+  /** answer: first pick; retry: second pick after a hint; done: the answer is shown */
+  stage: 'answer' | 'retry' | 'done'
+  /** Wrong picks so far, marked and disabled */
+  wrong: number[]
   result: CheckResult | null
-  chosen: number | null
+  /** A pick is being judged or its feedback is playing */
+  busy: boolean
+  /** After a re-teach: the mic is open for "kis part mein confusion hua?" */
+  followup: boolean
 }
 
 interface PlayerState {

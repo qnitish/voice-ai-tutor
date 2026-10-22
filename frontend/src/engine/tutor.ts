@@ -5,11 +5,13 @@
  */
 import { boardBefore } from '@/engine/board'
 import { FADE_MS, fadeTo } from '@/engine/fade'
+import { twinSlot, wrongNext } from '@/engine/remedy'
 import type { Restored } from '@/engine/restore'
 import { resumePoint } from '@/engine/timing'
 import { api, streamAnswer } from '@/lib/api'
 import type { CheckQuestion, Clip, DrawAction, Lesson, QuestionResult, Spoken } from '@/lib/types'
-import { initialPlayerState, setPlayer, type TimedAction, updateDoubt, usePlayer } from '@/store/player'
+import { rahi } from '@/lib/voice'
+import { type CheckView, initialPlayerState, setPlayer, type TimedAction, updateDoubt, usePlayer } from '@/store/player'
 
 const get = usePlayer.getState
 
@@ -57,6 +59,10 @@ export class Tutor {
   private fillers: Spoken[] = []
   private bridges: Spoken[] = []
   private checkResolve: (() => void) | null = null
+  /** Bumped when a check ends, so a late answer callback can't act on the next one */
+  private checkToken = 0
+  /** Twin questions due after a scene's end ('end': after the last scene), by scene they test */
+  private twins = new Map<number | 'end', number[]>()
   /** Clip on the main track, for sentence-aligned resume */
   private clip: Clip | null = null
   /** Next resume restarts the current clip from 0 ("phir se bolo") */
@@ -75,8 +81,8 @@ export class Tutor {
       this.answeredChecks = new Set(restored.answeredChecks)
     }
     ;[this.fillers, this.bridges] = await Promise.all([
-      api.fillers().catch(() => []),
-      api.bridges().catch(() => []),
+      api.fillers(lesson.voice).catch(() => []),
+      api.bridges(lesson.voice).catch(() => []),
     ])
     this.run(from).catch((e) => {
       if (!this.stopped) setPlayer({ error: String(e), mode: 'done' })
@@ -105,11 +111,13 @@ export class Tutor {
         await this.deliver('step_end')
       }
       await this.deliver('scene_end')
+      await this.runTwins(scene.idx)
       if (scene.check_question && !this.answeredChecks.has(scene.idx)) {
         await this.runCheck(scene.idx, scene.check_question)
       }
     }
     await this.deliver('scene_end')
+    await this.runTwins('end')
     await this.finish()
   }
 
@@ -224,8 +232,11 @@ export class Tutor {
   // ---- questions ----
 
   canAsk() {
-    const { mode } = get()
-    return !this.interjecting && (mode === 'playing' || mode === 'paused' || mode === 'answering')
+    const { mode, check } = get()
+    if (this.interjecting) return false
+    // During a check only the follow-up after a re-teach takes questions (not the re-teach itself)
+    if (this.phase === 'check') return mode === 'check' && !!check?.followup && !check.busy
+    return mode === 'playing' || mode === 'paused' || mode === 'answering'
   }
 
   /** Mic pressed: hold the lesson where it is. */
@@ -244,7 +255,9 @@ export class Tutor {
   }
 
   async submitQuestion(audio: Blob) {
-    const { sessionId, sceneIdx, stepIdx } = get()
+    const { sessionId, sceneIdx, stepIdx, check } = get()
+    // "Kis part mein confusion hua?" after a wrong check answer: answered right away, knowing the picks
+    const duringCheck = this.phase === 'check'
     setPlayer({ mode: 'thinking' })
     const tempId = `tmp-${Date.now()}`
     setPlayer((s) => ({
@@ -253,12 +266,15 @@ export class Tutor {
     const filler = this.fillers[Math.floor(Math.random() * this.fillers.length)]
     const fillerDone = filler ? this.playSpoken(filler) : Promise.resolve()
     try {
-      const res = await api.askQuestion(sessionId!, audio, sceneIdx, stepIdx)
+      const res = await api.askQuestion(sessionId!, audio, check?.sceneIdx ?? sceneIdx, stepIdx, duringCheck)
       await fillerDone
-      this.register(tempId, res)
+      this.register(tempId, res, duringCheck)
       await this.playSpoken(res.ack)
       if (res.answer_when === 'replay') this.replayFromStart = true
-      if (res.answer_when === 'now' && this.phase === 'lesson') await this.interject(res.doubt_id)
+      // "Clear hai, aage chalo" on the check card works like "Aage chalein"
+      if (res.intent === 'continue' && duringCheck) this.continueAfterCheck()
+      if (res.answer_when === 'now' && duringCheck) await this.answerDuringCheck(res.doubt_id)
+      else if (res.answer_when === 'now' && this.phase === 'lesson') await this.interject(res.doubt_id)
     } catch (e) {
       console.error(e)
       setPlayer((s) => ({ doubts: s.doubts.filter((d) => d.id !== tempId), error: 'Sawal bhejne mein dikkat hui. Phir se try karo.' }))
@@ -269,7 +285,7 @@ export class Tutor {
     }
   }
 
-  private register(tempId: string, res: QuestionResult) {
+  private register(tempId: string, res: QuestionResult, duringCheck = false) {
     const status =
       res.answer_when === 'target_scene'
         ? 'promised'
@@ -291,7 +307,7 @@ export class Tutor {
       this.callbacks.set(res.target_scene_idx, list)
     } else if (res.answer_when === 'step_end' || res.answer_when === 'scene_end') {
       this.pending.push(this.prefetch(res.doubt_id, res.answer_when))
-    } else if (res.answer_when === 'now' && this.phase !== 'lesson') {
+    } else if (res.answer_when === 'now' && this.phase !== 'lesson' && !duringCheck) {
       // Asked while another answer plays: it joins the current delivery right after it
       this.pending.push(this.prefetch(res.doubt_id, 'step_end'))
     }
@@ -367,6 +383,19 @@ export class Tutor {
     }
   }
 
+  /** A doubt asked from the check card: its answer plays on the doubt board, then the card comes back. */
+  private async answerDuringCheck(doubtId: string) {
+    const lessonBoard = get().drawn
+    this.interjecting = true
+    setPlayer({ mode: 'answering' })
+    try {
+      await this.playAnswer(this.prefetch(doubtId, 'step_end'), this.voice, false)
+    } finally {
+      this.interjecting = false
+      setPlayer({ layer: 'lesson', drawn: lessonBoard, active: [] })
+    }
+  }
+
   /** "Tumne pucha tha…" when the scene that answers a promised doubt begins. */
   private async playCallbacks(sceneIdx: number) {
     const list = this.callbacks.get(sceneIdx) ?? []
@@ -384,35 +413,115 @@ export class Tutor {
 
   // ---- check questions and summary ----
 
-  private async runCheck(sceneIdx: number, q: CheckQuestion) {
+  private async runCheck(sceneIdx: number, q: { say: string; audio_url: string }, twin = false) {
     await this.gate()
     this.phase = 'check'
     this.clip = null
     this.clipCaption = q.say
-    setPlayer({ check: { sceneIdx, result: null, chosen: null }, caption: q.say })
+    setPlayer({
+      check: { sceneIdx, twin, stage: 'answer', wrong: [], result: null, busy: false, followup: false },
+      caption: q.say,
+    })
     this.syncMode()
     // The student may answer and continue before the question has finished being read out
     const continued = new Promise<void>((r) => (this.checkResolve = r))
     void this.playAudio(this.main, q.audio_url)
     await continued
-    this.main.pause()
+    this.silenceMain()
     this.checkResolve = null
+    this.checkToken++
     this.phase = 'lesson'
     setPlayer({ check: null })
     this.syncMode()
   }
 
+  /** Twin questions of earlier wrongly answered scenes that are due now. */
+  private async runTwins(slot: number | 'end') {
+    const due = this.twins.get(slot) ?? []
+    this.twins.delete(slot)
+    for (const sceneIdx of due) {
+      const twin = get().lesson!.scenes[sceneIdx].check_question?.twin
+      if (twin) await this.runCheck(sceneIdx, twin, true)
+    }
+  }
+
+  /** Stop a read-out the student answered over, so resuming after a mic press won't replay it. */
+  private silenceMain() {
+    this.main.pause()
+    this.main.removeAttribute('src')
+    this.main.load()
+  }
+
+  private patchCheck(patch: Partial<CheckView>) {
+    setPlayer((s) => (s.check ? { check: { ...s.check, ...patch } } : {}))
+  }
+
+  /**
+   * Judge a pick. A wrong first pick plays the hint for that option and allows one more try;
+   * a second miss re-teaches on the doubt board, then shows the answer and opens the mic for follow-ups.
+   */
   async answerCheck(chosen: number) {
-    const { sessionId, check } = get()
-    if (!check || check.chosen !== null) return
-    setPlayer({ check: { ...check, chosen } })
-    const result = await api.recordAnswer(sessionId!, check.sceneIdx, chosen)
-    this.answeredChecks.add(check.sceneIdx)
-    setPlayer({ check: { ...check, chosen, result }, caption: result.feedback.text })
-    await this.playAudio(this.voice, result.feedback.audio_url)
+    const { sessionId, check, lesson } = get()
+    if (!check || check.busy || check.stage === 'done' || check.wrong.includes(chosen)) return
+    const q = lesson!.scenes[check.sceneIdx].check_question!
+    const kind = check.twin ? 'twin' : check.stage === 'retry' ? 'retry' : 'first'
+    const token = this.checkToken
+    const live = () => token === this.checkToken && !this.stopped
+    this.patchCheck({ busy: true })
+    this.silenceMain()
+    let result
+    try {
+      result = await api.recordAnswer(sessionId!, check.sceneIdx, chosen, kind)
+    } catch (e) {
+      console.error(e)
+      this.patchCheck({ busy: false })
+      setPlayer({ error: 'Jawab bhejne mein dikkat hui. Phir se try karo.' })
+      return
+    }
+    if (kind === 'first') this.answeredChecks.add(check.sceneIdx)
+    if (kind === 'first' && !result.correct && q.twin) {
+      const slot = twinSlot(lesson!.scenes.length, check.sceneIdx)
+      this.twins.set(slot, [...(this.twins.get(slot) ?? []), check.sceneIdx])
+    }
+    const next = result.correct || kind === 'twin' ? 'reveal' : wrongNext(q, kind)
+    if (!live()) return
+    this.patchCheck({
+      result,
+      wrong: result.correct ? check.wrong : [...check.wrong, chosen],
+      stage: next === 'retry' ? 'retry' : next === 'reveal' ? 'done' : check.stage,
+    })
+    await this.playSpoken(result.feedback)
+    if (live() && next === 'retry') {
+      const hint = q.why_wrong?.[chosen]
+      if (hint) await this.playSpoken(hint)
+    } else if (live() && next === 'reteach') {
+      await this.reteach(q, live)
+    }
+    if (live()) this.patchCheck({ busy: false })
+  }
+
+  /** Explain the idea again on the doubt board, then show the answer and ask where the confusion was. */
+  private async reteach(q: CheckQuestion, live: () => boolean) {
+    const lessonBoard = get().drawn
+    setPlayer({ mode: 'answering', layer: 'doubt', drawn: [], active: [] })
+    for (const clip of q.reteach ?? []) {
+      if (!live()) break
+      await this.playClip(clip, this.main, false)
+    }
+    setPlayer({ layer: 'lesson', drawn: lessonBoard, active: [] })
+    if (!live()) return
+    this.patchCheck({ stage: 'done', followup: !!q.followup })
+    this.syncMode()
+    if (q.followup) {
+      this.clipCaption = q.followup.text
+      await this.playSpoken(q.followup)
+    }
   }
 
   continueAfterCheck() {
+    const { check, sessionId } = get()
+    // Closed before the answer was shown: record the skip, so a review can tell it from a card that never appeared
+    if (check && check.stage !== 'done') api.skipCheck(sessionId!, check.sceneIdx, check.twin).catch(() => {})
     this.voice.pause()
     this.checkResolve?.()
   }
@@ -420,7 +529,7 @@ export class Tutor {
   private async finish() {
     this.phase = 'summary'
     this.syncMode()
-    setPlayer({ layer: 'doubt', drawn: [], active: [], caption: 'Aaj ka summary bana rahi hoon…' })
+    setPlayer({ layer: 'doubt', drawn: [], active: [], caption: `Aaj ka summary bana ${rahi(get().lesson)} hoon…` })
     const summary = await api.summary(get().sessionId!)
     setPlayer({ summary, caption: summary.speech.text })
     await this.playAudio(this.main, summary.speech.audio_url)

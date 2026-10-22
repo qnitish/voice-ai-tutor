@@ -7,6 +7,7 @@ from app.config import settings
 from app.db import Lesson, get_db
 from app.lesson_store import latest_lesson, latest_lessons
 from app.schemas import LessonOut, LessonSummaryOut, SceneOut, Spoken, StepOut
+from app.voices import exists, fillers_dir, get_voice
 
 router = APIRouter(prefix="/api")
 
@@ -16,6 +17,8 @@ def lesson_out(lesson: Lesson) -> LessonOut:
         slug=lesson.slug,
         title=lesson.title,
         version=lesson.version,
+        voice=lesson.voice,
+        voice_gender=get_voice(lesson.voice).gender,
         scenes=[
             SceneOut(
                 idx=s.idx,
@@ -49,17 +52,19 @@ def get_lesson(slug: str, db: Session = Depends(get_db)):
     return lesson_out(lesson)
 
 
-def _manifest(name: str) -> list:
-    manifest = settings.media_dir / "fillers" / name
+def _manifest(name: str, voice: str | None) -> list:
+    if not exists(voice):
+        return []
+    manifest = fillers_dir(voice) / name
     return json.loads(manifest.read_text()) if manifest.exists() else []
 
 
 @router.get("/fillers", response_model=list[Spoken])
-def fillers():
-    return _manifest("fillers.json")
+def fillers(voice: str | None = None):
+    return _manifest("fillers.json", voice)
 
 
 @router.get("/bridges", response_model=list[Spoken])
-def bridges():
+def bridges(voice: str | None = None):
     """Lines played after an answer, before the lesson continues."""
-    return _manifest("bridges.json")
+    return _manifest("bridges.json", voice)

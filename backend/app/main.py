@@ -5,12 +5,12 @@ from fastapi.staticfiles import StaticFiles
 
 from app.api import lessons, questions, sessions
 from app.config import settings
-from app.db import Base, engine
+from app.db import migrate
 
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
-    Base.metadata.create_all(engine)
+    migrate()
     yield
 
 

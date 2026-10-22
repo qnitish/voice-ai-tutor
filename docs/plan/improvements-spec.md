@@ -4,7 +4,7 @@ Status: agreed scope (2026-10-21). This file is the **contract for the tests**. 
 only, without reading the implementation. The implementation must make them pass without editing them.
 
 Out of scope for this round: content evaluation (`review` stage), math checks, review-at-session-start, re-teaching
-after a wrong check answer, streaming upload, a second TTS provider.
+after a wrong check answer (added later as section 9), streaming upload, a second TTS provider.
 
 ---
 
@@ -402,3 +402,211 @@ Rules for each doubt, first match wins:
 6. any other intent (`off_topic`, `unclear`, `clarify`) → status `dismissed`.
 
 `targetSceneIdx` is `target_scene_idx`. Does not mutate `state`.
+
+---
+
+## 9. Remediation after a wrong check answer (added 2026-10-22)
+
+| Change | Improvement for the student / team |
+|---|---|
+| Option-specific hint, then one retry | The student hears why *their* pick is wrong (the likely misconception) and gets to fix it themselves, instead of just being told the right letter. |
+| Re-teach on the doubt board after a second miss | The idea is explained again in a different way with a drawing, before moving on. |
+| "Kahan confusion hua?" follow-up by voice | The student can say what confused them; the answer is generated right away and knows which options they picked. |
+| Twin question later | A different question on the same concept after the next scene checks whether the re-teach worked; mastery recovers only then. |
+
+All remediation content is written and narrated **offline** (new prep stage `remedy`), so it plays with no live
+LLM or TTS wait. Lessons published without it keep the old behaviour (wrong → reveal the answer).
+
+### Published check question (extra optional keys)
+
+A scene's `check_question` dict may carry, besides the keys of the Test setup section:
+
+- `why_wrong`: list parallel to `options`. For a wrong option, `{text, audio_url, duration_ms}`: a spoken hint naming
+  the likely misconception behind that pick, without revealing the right option. `null` for the correct option (and
+  for any option without a hint).
+- `reteach`: list of 2–4 clips `{say, draw, audio_url, duration_ms}`, a fresh explanation for the doubt board.
+- `followup`: `{text, audio_url, duration_ms}`, the fixed line `CHECK_FOLLOWUP` asking where the confusion was.
+- `twin`: `{question, say, options, correct_index, explanation, audio_url}`, a different question on the same concept.
+
+`app.quiz.shuffle_checks`: when a question has a `why_wrong` list of the same length as `options`, it is permuted
+together with `options` (each hint stays with its option text). All other rules of section 1 still hold.
+`publish_lesson` additionally shuffles the `twin` questions with `shuffle_checks(twins, seed=f"{slug}:twin")`
+(scenes without a twin pass `None`), and stores the result as each check question's `twin`.
+
+### Fixed lines (`app.prompts`)
+
+`CHECK_LINES` is a dict of fixed spoken feedback (cached audio):
+- `"correct"`: `"Bilkul sahi! Shabaash."`
+- `"wrong_try_again"`: first wrong answer to a question that has `why_wrong` (does not name the right option).
+- `"retry_correct"`, `"twin_correct"`: praise after a correct retry / twin answer.
+
+`CHECK_FOLLOWUP` is the line stored as `followup`.
+
+Wrong feedback that reveals the answer ends with `"Sahi jawab option {letter} hai."`, where `letter` is `A`–`D` for
+the judged question's `correct_index`.
+
+### `POST /api/sessions/{id}/check` (first answer)
+
+Unchanged contract (response keys, 409 on a repeat, mastery), except the feedback text on a **wrong** answer:
+- question has a non-empty `why_wrong` → `CHECK_LINES["wrong_try_again"]` (no answer revealed);
+- otherwise → reveals the answer as before.
+A correct answer's feedback text is `CHECK_LINES["correct"]`.
+
+### `POST /api/sessions/{id}/check/retry`
+
+Body `{"scene_idx": int, "chosen_index": int}`. Response: same shape as `/check`
+(`{correct, correct_index, explanation, feedback}`), judged against the same question.
+- Unknown session **404**; scene without a check question **404**.
+- **409** (and nothing changes) when this session has no first answer for that scene, the first answer was correct,
+  or a retry for that scene was already recorded.
+- Mastery of the concept: `retry_mastery(score, correct)`; `attempts` is **not** changed.
+- Feedback text: correct → `CHECK_LINES["retry_correct"]`; wrong → reveals the answer.
+- A retry is not a check result: `answered_checks`, `checks_correct` and `checks_total` (progress, history) only count
+  first answers.
+
+### `POST /api/sessions/{id}/check/twin`
+
+Body `{"scene_idx": int, "chosen_index": int}`, where `chosen_index` indexes the **twin's** options. Response: same
+shape as `/check`, with the twin's `correct_index` and `explanation`.
+- Unknown session **404**; scene without a check question or without a `twin` **404**.
+- **409** (nothing changes) when there is no first answer for that scene in this session, the first answer was
+  correct, or the twin was already answered.
+- Mastery: `next_mastery(score, correct)` and `attempts` + 1 (it is a new question).
+- Feedback: correct → `CHECK_LINES["twin_correct"]`; wrong → reveals the twin's answer.
+- Not counted in `answered_checks` / `checks_*`.
+
+### Mastery rule (`app.progress`)
+
+`ALPHA_RETRY = 0.2`. `retry_mastery(score, correct)`: start from `PRIOR` when `None`; return
+`s + ALPHA_RETRY * ((1.0 if correct else 0.0) - s)`, within `[0, 1]`. (After a first wrong answer at 0.3: correct
+retry → 0.44, wrong retry → 0.24.)
+
+### Summary
+
+The summary LLM call's `user` JSON lists, per first answer in `check_results`, `retry_correct` and `twin_correct`
+(`true`/`false`, or `null` when not attempted).
+
+### Doubts during a check
+
+`POST /api/sessions/{id}/questions` accepts an optional form field `during_check` (`"true"`/`"false"`, default false).
+When true:
+- `off_topic`, `unclear` and `continue` stay as they are; every other intent becomes `confused` (`answer_when = "now"`,
+  `target_scene_idx` and `callback` null);
+- (changed in section 11) a forced `confused` with confidence < 0.6 becomes `clarify` as usual, and a following "haan"
+  is answered now.
+
+`GET /api/doubts/{id}/answer`: when this session has a first check answer for the doubt's `scene_idx` recorded
+**before** the doubt was asked, the prompt passed to `stream_lines` contains the line `Student's check answers:` and,
+after it, the check `question`, the text of every option the student picked (first answer and retry, if any), the
+correct option's text and the `explanation`. Otherwise the prompt contains no `Student's check answers:` line.
+
+### Prep stage `remedy`
+
+`STAGES` becomes `transcript, outline, scenes, audio, remedy`. For each scene the LLM (`REMEDY_SYSTEM`) returns
+`app.schemas.RemedyDraft`: `why_wrong: list[OptionHint]` (`{option: int, hint: str}`, one per wrong option, labelled
+with its index), `reteach: list[StepDraft]`
+(2–4), `twin: TwinQuestion` (`question, say, options (2–4), correct_index, explanation`). Like `SceneDraft`, it rejects
+Devanagari in any spoken text (`why_wrong`, reteach `say`, twin `say`), which makes the LLM retry. The stage then
+synthesizes the hints, re-teach steps, twin question and follow-up line, caches the result in `remedy.json` and
+`load_db` merges it into each scene's `check_question`.
+
+### Frontend: `@/engine/remedy`
+
+- `wrongNext(q: CheckQuestion, attempt: 'first' | 'retry'): 'retry' | 'reteach' | 'reveal'`
+  - `'first'` and `q.why_wrong` has at least one non-null entry → `'retry'`;
+  - otherwise `q.reteach` is non-empty → `'reteach'`;
+  - otherwise `'reveal'`.
+- `twinSlot(sceneCount: number, sceneIdx: number): number | 'end'`: the scene after whose end (answers delivered,
+  before its own check) the twin of `sceneIdx` is asked: `sceneIdx + 1` when that scene exists, else `'end'`
+  (after the last scene, before the summary).
+
+### Behaviour without automated tests (engine + `CheckCard`)
+
+- Wrong first answer with hints: play the feedback, then the chosen option's hint; the wrong option is marked and
+  disabled, the right one is **not** shown, and the student picks again (`/check/retry`).
+- Wrong again (or no hints): play the re-teach clips on the doubt board, then show the answer and explanation, play
+  `followup`, and open the mic. A doubt asked now is sent with `during_check=true` and its answer plays at once on the
+  doubt board; "Aage chalein" continues the lesson.
+- If the first answer was wrong and the question has a twin, the twin is asked at `twinSlot(...)`. A twin answer
+  just shows the result and explanation. Twins are not restored when a session is resumed.
+
+---
+
+## 10. Per-lesson tutor voice, including a cloned voice (added 2026-10-22)
+
+| Change | Improvement for the student / team |
+|---|---|
+| Lesson voice (stock or cloned) | A lesson can be narrated in the real teacher's voice (cloned with permission), while other lessons keep the stock voice. |
+| Voice gender | A male voice gets masculine first-person verbs ("samjhata hoon") in narration, acks, answers and UI. |
+
+- `app.voices`: `get_voice(name)` returns a `Voice {name, gender, stock, embedding}`; `None`/`"default"` is the configured
+  stock voice (`GNANI_TTS_VOICE`, gender `TUTOR_GENDER`, default `female`). Other voices are `data/voices/<name>.json`;
+  names must match `^[a-z0-9][a-z0-9-]{0,59}$` (`voice_path` raises `ValueError` otherwise).
+  `python -m app.voices clone <audio> --name <name> --gender male|female --start S --seconds 5..30` cuts the reference
+  clip, calls Gnani `POST /api/v1/tts/voice-clone/embeddings` and saves the embedding.
+- `audio.speak(text, path, voice=None)` synthesizes with `current_voice` set to that voice; `speak_cached(text, voice=None)`
+  caches per voice (`cache/<voice>/…`; the default voice keeps `cache/…`). Gnani sends a cloned voice as
+  `speaker_embedding` with model `vachana-vc-v1`.
+- `lessons.voice` (nullable column, added by `db.migrate()`); `publish_lesson(..., voice=None)`. `GET /api/lessons/{slug}`
+  adds `voice` and `voice_gender`.
+- Everything spoken for a session uses its lesson's voice: acks, clarify/off-topic lines, callbacks, answers, check feedback,
+  summary. Routing, answer and summary system prompts use `for_gender(system, gender)`, which swaps `FEMALE_RULE` for
+  `MALE_RULE`; fixed lines go through `line_for(text, gender)`.
+- `GET /api/fillers?voice=` and `GET /api/bridges?voice=` read `media/fillers/<voice>/…json` (default voice: `media/fillers/`);
+  an unknown or invalid voice gives `[]`.
+- Prep `--voice NAME` narrates every stage in that voice and writes the scene and remedy prompts for its gender (changing the
+  voice of an existing lesson needs `--redo scenes`).
+
+---
+
+## 11. Content quality fixes from the nomenclature-01 review (added 2026-10-22)
+
+| Change | Problem it fixes (seen in a real session) |
+|---|---|
+| `review` prep stage + remedy review | A check question marked a wrong chemistry answer correct ("OH outranks CHO"); a twin had two correct options. |
+| Grounded answers (`source` line) | A doubt answer contradicted the teacher's DU formula. |
+| Earlier doubts in the answer prompt | A repeated "kya yeh sahi hai?" got a second answer that again skipped the yes/no. |
+| `continue` intent | "Sab clear hai, aage chalo" was routed `off_topic`. |
+| Check card in routing; ask back during checks | "Confusion point two mein hua" was answered by guessing what "point two" meant. |
+| Hint leak check | A hint said the right answer, so the retry measured nothing. |
+| Recorded skips | A twin left no trace; skipped and never-shown could not be told apart. |
+| Prep model setting | gpt-4o does not reason before answering; a reasoning model is better for offline content. |
+
+### Prep model
+`Settings.azure_openai_prep_deployment` (env `AZURE_OPENAI_PREP_DEPLOYMENT`, property `prep_deployment`, falls back to
+`azure_openai_deployment`) and `azure_openai_prep_reasoning_effort`. `app.llm.prep_json(system, user, schema)` calls
+`complete_json(..., model=prep_deployment)`, adding `reasoning_effort=<effort>` (and no temperature) when the effort is
+set. Outline, scenes, review and remedy use it. `complete_json` gains `reasoning_effort: str | None = None`.
+
+### Prep stage `review`
+`STAGES = transcript, outline, scenes, review, audio, remedy`. Per scene, `review_scene(meta, scene, transcript, voice)`
+calls `prep_json(REVIEW_SYSTEM, user, CheckReview)`; `user` contains the lecture transcript, each step's narration and
+the check question with `Option i: ...` lines. `CheckReview = {issues, narration_issues, check_question}` (Devanagari
+in `say` is rejected). The returned dict is cached in `review.json`; audio and remedy use its `check_question`.
+Narration issues are only logged at the end of the run. A lesson that has `audio.json` but no `review.json` redoes
+audio and remedy after the review.
+
+### Remedy review and leak check
+`make_remedy(meta, scene, voice=None, transcript="")` sends the transcript to `REMEDY_SYSTEM`, then reviews the draft
+with `prep_json(REMEDY_REVIEW_SYSTEM, ..., RemedyReview)` (`{issues, remedy: RemedyDraft}`) and uses `remedy`. Hints
+for which `app.schemas.leaks_answer(hint, correct_option)` is true are dropped: after lowercasing and replacing
+punctuation with spaces, the correct option's text occurs in the hint as whole words; options of one word under 6
+characters are never judged. Reviewed parts whose spoken text mentions "lecture", "transcript" or "review" (whole word, any case) are
+replaced by the un-reviewed draft's part (per hint, the whole re-teach, the whole twin).
+
+### Doubts
+- Intent `continue` (→ `answer_when = "none"`, fixed ack `FIXED_ACKS["continue"]`). On the check card the player treats it
+  like "Aage chalein".
+- With `during_check`, the routing prompt contains `Check question on screen: <question>`, one line `<letter>. <option>`
+  per option (A–D), and `Student picked (wrong): <letters>`. Without it, no such section.
+- The answer prompt contains `Earlier doubts in this session` with up to 3 earlier doubts of the session (not
+  `clarify`), each with the tutor's spoken answer; absent for the first doubt.
+- `ANSWER_SYSTEM` asks for a first line `{"source": ...}` (what the lecture says); it fails the step schema, so it is
+  neither spoken nor stored.
+
+### `POST /api/sessions/{id}/check/skip`
+Body `{"scene_idx": int, "twin": bool = false}` → `{"ok": true}`. 404 for an unknown session, a scene without a check
+question, or `twin` without a twin. Records once (repeat calls are fine), changes no mastery and no check counts. The
+summary `user` JSON gets `twin_skipped` per check result and `skipped_checks` (scene indexes). The player calls it when
+a card is closed before its answer was shown.
+

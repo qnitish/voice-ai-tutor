@@ -6,10 +6,11 @@ from sqlalchemy.orm import Session
 
 from app import llm
 from app.audio import speak, speak_cached
-from app.db import CheckResult, ConceptMastery, Doubt, Guest, Lesson, TutorSession, get_db
+from app.db import CheckAttempt, CheckResult, ConceptMastery, Doubt, Guest, Lesson, TutorSession, get_db
 from app.lesson_store import latest_lesson
-from app.progress import WEAK_BELOW, next_mastery
-from app.prompts import SUMMARY_SYSTEM
+from app.voices import get_voice
+from app.progress import WEAK_BELOW, next_mastery, retry_mastery
+from app.prompts import CHECK_LINES, SUMMARY_SYSTEM, for_gender, reveal_line
 from app.schemas import (
     CheckIn,
     CheckOut,
@@ -24,6 +25,7 @@ from app.schemas import (
     SessionIn,
     SessionOut,
     SessionStateOut,
+    SkipIn,
     Spoken,
     StateDoubt,
     SummaryDraft,
@@ -122,15 +124,23 @@ def save_position(session_id: str, body: Position, db: Session = Depends(get_db)
     return body
 
 
+def check_question_or_404(sess: TutorSession, scene_idx: int) -> dict:
+    scene = next((s for s in sess.lesson.scenes if s.idx == scene_idx), None)
+    if not scene or not scene.check_question:
+        raise HTTPException(404, "No check question for this scene")
+    return scene.check_question
+
+
+def first_answer(db: Session, session_id: str, scene_idx: int) -> CheckResult | None:
+    return db.scalars(select(CheckResult).filter_by(session_id=session_id, scene_idx=scene_idx)).first()
+
+
 @router.post("/sessions/{session_id}/check", response_model=CheckOut)
 async def record_answer(session_id: str, body: CheckIn, db: Session = Depends(get_db)):
     sess = get_session(db, session_id)
-    scene = next((s for s in sess.lesson.scenes if s.idx == body.scene_idx), None)
-    if not scene or not scene.check_question:
-        raise HTTPException(404, "No check question for this scene")
-    if db.scalar(select(CheckResult.id).filter_by(session_id=sess.id, scene_idx=body.scene_idx)):
+    q = check_question_or_404(sess, body.scene_idx)
+    if first_answer(db, sess.id, body.scene_idx):
         raise HTTPException(409, "Already answered in this session")
-    q = scene.check_question
     correct = body.chosen_index == q["correct_index"]
     db.add(
         CheckResult(
@@ -144,14 +154,84 @@ async def record_answer(session_id: str, body: CheckIn, db: Session = Depends(ge
     update_mastery(db, sess.guest_id, q["concept"], lambda s: next_mastery(s, correct), attempt=True)
     touch(sess)
     db.commit()
-    letter = "ABCD"[q["correct_index"]]
-    text = "Bilkul sahi! Shabaash." if correct else f"Hmm, yeh sahi nahi hai. Sahi jawab option {letter} hai."
+    if correct:
+        text = CHECK_LINES["correct"]
+    elif any(q.get("why_wrong") or []):
+        # The player plays the hint for the picked option and lets the student try again
+        text = CHECK_LINES["wrong_try_again"]
+    else:
+        text = reveal_line(q["correct_index"])
     return CheckOut(
         correct=correct,
         correct_index=q["correct_index"],
         explanation=q["explanation"],
-        feedback=await speak_cached(text),
+        feedback=await speak_cached(text, sess.lesson.voice),
     )
+
+
+def later_attempt(db: Session, sess: TutorSession, body: CheckIn, kind: str, q: dict) -> bool:
+    """Record a retry or twin answer to q; only allowed once, after a wrong first answer. Caller commits."""
+    first = first_answer(db, sess.id, body.scene_idx)
+    if not first or first.correct:
+        raise HTTPException(409, "Only after a wrong first answer")
+    if db.scalar(select(CheckAttempt.id).filter_by(session_id=sess.id, scene_idx=body.scene_idx, kind=kind)):
+        raise HTTPException(409, f"{kind} already answered in this session")
+    correct = body.chosen_index == q["correct_index"]
+    db.add(CheckAttempt(session_id=sess.id, scene_idx=body.scene_idx, kind=kind, chosen_index=body.chosen_index, correct=correct))
+    touch(sess)
+    return correct
+
+
+@router.post("/sessions/{session_id}/check/retry", response_model=CheckOut)
+async def retry_answer(session_id: str, body: CheckIn, db: Session = Depends(get_db)):
+    """Second try at the same question, after the hint for the first (wrong) pick."""
+    sess = get_session(db, session_id)
+    q = check_question_or_404(sess, body.scene_idx)
+    correct = later_attempt(db, sess, body, "retry", q)
+    update_mastery(db, sess.guest_id, q["concept"], lambda s: retry_mastery(s, correct), attempt=False)
+    db.commit()
+    text = CHECK_LINES["retry_correct"] if correct else reveal_line(q["correct_index"])
+    return CheckOut(
+        correct=correct,
+        correct_index=q["correct_index"],
+        explanation=q["explanation"],
+        feedback=await speak_cached(text, sess.lesson.voice),
+    )
+
+
+@router.post("/sessions/{session_id}/check/twin", response_model=CheckOut)
+async def twin_answer(session_id: str, body: CheckIn, db: Session = Depends(get_db)):
+    """A different question on the same concept, asked a scene later to see if the re-teach worked."""
+    sess = get_session(db, session_id)
+    q = check_question_or_404(sess, body.scene_idx)
+    twin = q.get("twin")
+    if not twin:
+        raise HTTPException(404, "No twin question for this scene")
+    correct = later_attempt(db, sess, body, "twin", twin)
+    update_mastery(db, sess.guest_id, q["concept"], lambda s: next_mastery(s, correct), attempt=True)
+    db.commit()
+    text = CHECK_LINES["twin_correct"] if correct else reveal_line(twin["correct_index"])
+    return CheckOut(
+        correct=correct,
+        correct_index=twin["correct_index"],
+        explanation=twin["explanation"],
+        feedback=await speak_cached(text, sess.lesson.voice),
+    )
+
+
+@router.post("/sessions/{session_id}/check/skip")
+def skip_check(session_id: str, body: SkipIn, db: Session = Depends(get_db)):
+    """The student closed a check (or twin) card without answering; recorded so reviews can tell. No mastery change."""
+    sess = get_session(db, session_id)
+    q = check_question_or_404(sess, body.scene_idx)
+    if body.twin and not q.get("twin"):
+        raise HTTPException(404, "No twin question for this scene")
+    kind = "twin_skip" if body.twin else "skip"
+    if not db.scalar(select(CheckAttempt.id).filter_by(session_id=sess.id, scene_idx=body.scene_idx, kind=kind)):
+        db.add(CheckAttempt(session_id=sess.id, scene_idx=body.scene_idx, kind=kind, chosen_index=-1, correct=False))
+        touch(sess)
+        db.commit()
+    return {"ok": True}
 
 
 @router.post("/sessions/{session_id}/summary", response_model=SummaryOut)
@@ -161,18 +241,30 @@ async def end_session_summary(session_id: str, db: Session = Depends(get_db)):
         return sess.summary
     doubts = db.scalars(select(Doubt).filter_by(session_id=sess.id).order_by(Doubt.created_at)).all()
     checks = db.scalars(select(CheckResult).filter_by(session_id=sess.id).order_by(CheckResult.created_at)).all()
+    later = {(a.scene_idx, a.kind): a.correct for a in db.scalars(select(CheckAttempt).filter_by(session_id=sess.id))}
     user = json.dumps(
         {
             "student": {"name": sess.guest.name, "class": sess.guest.class_level},
             "lesson": sess.lesson.title,
             "scenes": [{"title": s.title, "goal": s.goal} for s in sess.lesson.scenes],
             "doubts": [{"question": d.question, "intent": d.intent} for d in doubts],
-            "check_results": [{"concept": c.concept, "correct": c.correct} for c in checks],
+            "check_results": [
+                {
+                    "concept": c.concept,
+                    "correct": c.correct,
+                    "retry_correct": later.get((c.scene_idx, "retry")),
+                    "twin_correct": later.get((c.scene_idx, "twin")),
+                    "twin_skipped": (c.scene_idx, "twin_skip") in later,
+                }
+                for c in checks
+            ],
+            "skipped_checks": sorted(i for i, kind in later if kind == "skip"),
         },
         ensure_ascii=False,
     )
-    draft = await llm.complete_json(SUMMARY_SYSTEM, user, SummaryDraft)
-    speech = await speak(" ".join(draft.lines), f"sessions/{sess.id}_summary.wav")
+    voice = sess.lesson.voice
+    draft = await llm.complete_json(for_gender(SUMMARY_SYSTEM, get_voice(voice).gender), user, SummaryDraft)
+    speech = await speak(" ".join(draft.lines), f"sessions/{sess.id}_summary.wav", voice)
     out = SummaryOut(**draft.model_dump(), speech=speech)
     sess.summary = out.model_dump()
     touch(sess)

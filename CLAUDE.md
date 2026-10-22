@@ -40,12 +40,17 @@ Secrets live in the root `.env` (read by `backend/app/config.py`); `.env.example
 
 ## Architecture
 
-**Offline prep** (`backend/app/prep/__main__.py`) runs in stages, each cached as JSON in `data/lessons/<slug>/`:
+**Offline prep** (`backend/app/prep/__main__.py`, LLM calls via `llm.prep_json` on `AZURE_OPENAI_PREP_DEPLOYMENT`, ideally a
+reasoning model) runs in stages, each cached as JSON in `data/lessons/<slug>/`:
 1. `transcript`: ffmpeg cuts the audio slice into STT-sized chunks (provider `max_seconds`), transcribed in parallel.
 2. `outline`: LLM plans 4–6 non-overlapping scenes.
 3. `scenes`: LLM writes each scene **sequentially** (later scenes see earlier narration to avoid repeats) as steps
    `{say, draw[]}` plus an MCQ check question. `SceneDraft` rejects Devanagari in `say`, which makes the LLM retry.
-4. `audio`: TTS per step and check question → `data/media/lessons/<slug>/`.
+4. `review`: a reviewer prompt fact-checks each check question against the transcript and corrects it; narration
+   problems are only logged (fix them by hand). Remedy content is reviewed too, and hints that quote the answer are dropped.
+5. `audio`: TTS per step and check question → `data/media/lessons/<slug>/`.
+6. `remedy`: per check question, LLM (`REMEDY_SYSTEM`) writes a hint per wrong option (labelled by option index), 2–3
+   re-teach steps and a "twin" question on the same concept, all narrated. Merged into `check_question` on publish.
 Then fillers, bridges and fixed acks are pre-synthesized and the lesson is published with `lesson_store.publish_lesson`
 as a **new version** (old versions and their sessions are kept; the API serves the latest). Check-question options are
 shuffled on publish (`quiz.shuffle_checks`) so the answer isn't always A.
@@ -64,14 +69,21 @@ shuffled on publish (`quiz.shuffle_checks`) so the answer isn't always A.
   starts as soon as the line is complete (producer/consumer queue), so the first line plays while later lines generate.
   The finished answer is stored on the `Doubt` and replayed from there.
 - `sessions.py`: guests (no auth), sessions, `position` (resume point), `check` (one answer per scene per session; updates
-  concept mastery, see `progress.py`), `summary` (marks the session completed), `state` (position, answered checks and
+  concept mastery, see `progress.py`), `check/retry` and `check/twin` (after a wrong first answer; stored as
+  `CheckAttempt`, not counted as checks), `summary` (marks the session completed), `state` (position, answered checks and
   doubts, used to resume with earlier doubts via `engine/restore.ts`), and per-guest `resume`, `progress`,
   `mastery`, `history`. `weak_concepts` = concepts with mastery < 0.5 plus those named by summaries.
 
 **Providers** (`backend/app/providers/`): STT/TTS are `Protocol`s, selected by `STT_PROVIDER`/`TTS_PROVIDER`. To add a vendor,
 write a module and register it in `providers/__init__.py`. Gnani specifics: auth header `X-API-Key-ID`; STT accepts at most
-~30–60 s per request; the account allows **one TTS request at a time** (`GnaniTTS` serializes with a semaphore); its WAV
+~30–60 s per request; the account allows **one STT and one TTS request at a time** (`GnaniSTT`/`GnaniTTS` each
+serialize with a semaphore); its WAV
 headers carry placeholder sizes, so `audio.to_wav` always re-encodes TTS output and measures duration from the PCM.
+
+**Voices** (`backend/app/voices.py`): a lesson stores a voice name (`lessons.voice`, null = stock `GNANI_TTS_VOICE`);
+cloned voices are Gnani speaker embeddings in `data/voices/<name>.json` (`python -m app.voices clone …`, only with the
+speaker's permission). Everything spoken for a lesson uses its voice (`speak(..., voice)`, per-voice `speak_cached` and
+filler folders), and a male voice swaps the female first-person rule in prompts (`for_gender`) and fixed lines (`line_for`).
 
 **Prompts** all live in `backend/app/prompts.py`: shared `SPEECH_RULES` (Roman-script Hinglish, speakable maths, female
 first-person verbs to match the voice) and `DRAW_SPEC` (the whiteboard DSL). The draw action schema is in
@@ -89,6 +101,9 @@ writes state into the Zustand store `store/player.ts`; components only read the 
 - Answers are prefetched as soon as a doubt is routed and delivered at the matching boundary (`deliver`, which also picks
   up doubts asked during it) or immediately (`interject` for "now") on a separate "doubt" board layer; then a bridge
   line plays and the lesson board is restored. Promised doubts play their callback when the target scene starts.
+- Wrong check answer (`answerCheck`, `engine/remedy.ts`): hint for the picked option → one retry → re-teach on the doubt
+  board → answer shown and mic open; doubts asked then go with `during_check` (forced to `confused`, answer prompt sees
+  the wrong picks). The twin question is asked after the next scene. Lessons without `remedy` data just reveal the answer.
 - The position is saved at each step; `start(lesson, session, from)` resumes there with `board.boardBefore` drawn.
 - A new `Tutor` is created per `LessonPage` mount (StrictMode mounts twice; `stop()` is permanent).
 

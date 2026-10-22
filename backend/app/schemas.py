@@ -157,8 +157,71 @@ class SceneDraft(BaseModel):
         return self
 
 
+class TwinQuestion(BaseModel):
+    question: str
+    say: str
+    options: list[str] = Field(min_length=2, max_length=4)
+    correct_index: int
+    explanation: str
+
+
+class OptionHint(BaseModel):
+    option: int
+    hint: str
+
+
+class RemedyDraft(BaseModel):
+    """What the tutor says and draws when a check question is answered wrong."""
+
+    # One per wrong option, labelled with its index (a plain list drifts when the LLM skips the correct one)
+    why_wrong: list[OptionHint]
+    reteach: list[StepDraft] = Field(min_length=2, max_length=4)
+    twin: TwinQuestion
+
+    @model_validator(mode="after")
+    def roman_script(self):
+        spoken = [h.hint for h in self.why_wrong] + [s.say for s in self.reteach] + [self.twin.say]
+        if any(DEVANAGARI.search(t) for t in spoken):
+            raise ValueError('every spoken line must be in Roman script, not Devanagari')
+        return self
+
+
+class CheckReview(BaseModel):
+    """Reviewer verdict on one scene before narration; check_question is corrected when issues were found."""
+
+    issues: list[str] = []
+    narration_issues: list[str] = []
+    check_question: CheckQuestion
+
+    @model_validator(mode="after")
+    def roman_script(self):
+        if DEVANAGARI.search(self.check_question.say):
+            raise ValueError('"say" must be in Roman script, not Devanagari')
+        return self
+
+
+class RemedyReview(BaseModel):
+    issues: list[str] = []
+    remedy: RemedyDraft
+
+
+def _norm(text: str) -> str:
+    return " ".join(re.sub(r"[^\w\s]", " ", text.lower()).split())
+
+
+def leaks_answer(hint: str, correct_option: str) -> bool:
+    """A hint that contains the correct option's text gives the answer away.
+
+    Very short options ("Two", "OH") also occur in honest hints, so only options of 2+ words or 6+ letters count.
+    """
+    option = _norm(correct_option)
+    if len(option.split()) < 2 and len(option) < 6:
+        return False
+    return f" {option} " in f" {_norm(hint)} "
+
+
 Intent = Literal[
-    "covered_later", "not_covered", "prerequisite", "confused", "repeat", "off_topic", "unclear", "clarify"
+    "covered_later", "not_covered", "prerequisite", "confused", "repeat", "continue", "off_topic", "unclear", "clarify"
 ]
 AnswerWhen = Literal["none", "now", "replay", "step_end", "scene_end", "target_scene"]
 
@@ -210,6 +273,9 @@ class LessonOut(BaseModel):
     slug: str
     title: str
     version: int
+    # Tutor voice name (null = default) and its gender, for fillers/bridges and UI wording
+    voice: str | None = None
+    voice_gender: Literal["female", "male"] = "female"
     scenes: list[SceneOut]
 
 
@@ -306,6 +372,12 @@ class QuestionOut(BaseModel):
 class CheckIn(BaseModel):
     scene_idx: int
     chosen_index: int
+
+
+class SkipIn(BaseModel):
+    scene_idx: int
+    # Skipped the scene's twin question instead of its own check
+    twin: bool = False
 
 
 class CheckOut(BaseModel):

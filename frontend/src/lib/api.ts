@@ -20,8 +20,8 @@ const http = axios.create({ baseURL: '/api' })
 export const api = {
   listLessons: () => http.get<LessonSummary[]>('/lessons').then((r) => r.data),
   getLesson: (slug: string) => http.get<Lesson>(`/lessons/${slug}`).then((r) => r.data),
-  fillers: () => http.get<Spoken[]>('/fillers').then((r) => r.data),
-  bridges: () => http.get<Spoken[]>('/bridges').then((r) => r.data),
+  fillers: (voice: string | null) => http.get<Spoken[]>('/fillers', { params: { voice } }).then((r) => r.data),
+  bridges: (voice: string | null) => http.get<Spoken[]>('/bridges', { params: { voice } }).then((r) => r.data),
 
   createGuest: (body: { name: string; class_level: number | null; language: string }) =>
     http.post<Guest>('/guests', body).then((r) => r.data),
@@ -35,17 +35,24 @@ export const api = {
   savePosition: (sessionId: string, sceneIdx: number, stepIdx: number) =>
     http.post(`/sessions/${sessionId}/position`, { scene_idx: sceneIdx, step_idx: stepIdx }),
 
-  askQuestion: (sessionId: string, audio: Blob, sceneIdx: number, stepIdx: number) => {
+  askQuestion: (sessionId: string, audio: Blob, sceneIdx: number, stepIdx: number, duringCheck = false) => {
     const form = new FormData()
     form.append('audio', audio, 'question.webm')
     form.append('scene_idx', String(sceneIdx))
     form.append('step_idx', String(stepIdx))
+    form.append('during_check', String(duringCheck))
     return http.post<QuestionResult>(`/sessions/${sessionId}/questions`, form).then((r) => r.data)
   },
-  recordAnswer: (sessionId: string, sceneIdx: number, chosenIndex: number) =>
+  /** kind: first answer, a second try after the hint, or the twin question */
+  recordAnswer: (sessionId: string, sceneIdx: number, chosenIndex: number, kind: 'first' | 'retry' | 'twin' = 'first') =>
     http
-      .post<CheckResult>(`/sessions/${sessionId}/check`, { scene_idx: sceneIdx, chosen_index: chosenIndex })
+      .post<CheckResult>(`/sessions/${sessionId}/check${kind === 'first' ? '' : `/${kind}`}`, {
+        scene_idx: sceneIdx,
+        chosen_index: chosenIndex,
+      })
       .then((r) => r.data),
+  skipCheck: (sessionId: string, sceneIdx: number, twin: boolean) =>
+    http.post(`/sessions/${sessionId}/check/skip`, { scene_idx: sceneIdx, twin }),
   summary: (sessionId: string) => http.post<SessionSummary>(`/sessions/${sessionId}/summary`).then((r) => r.data),
 }
 

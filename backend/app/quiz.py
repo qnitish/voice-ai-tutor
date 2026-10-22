@@ -21,10 +21,14 @@ def shuffle_checks(checks: list[dict | None], seed: str) -> list[dict | None]:
         if q is None:
             out.append(None)
             continue
-        correct = q["options"][q["correct_index"]]
-        others = [o for j, o in enumerate(q["options"]) if j != q["correct_index"]]
+        n, ci = len(q["options"]), q["correct_index"]
+        others = [j for j in range(n) if j != ci]
         rng.shuffle(others)
-        pos = target_of[i] if i in target_of else rng.randrange(len(q["options"]))
-        options = others[:pos] + [correct] + others[pos:]
-        out.append({**q, "options": options, "correct_index": pos})
+        pos = target_of[i] if i in target_of else rng.randrange(n)
+        order = others[:pos] + [ci] + others[pos:]
+        moved = {**q, "options": [q["options"][j] for j in order], "correct_index": pos}
+        # Each wrong-answer hint stays with its option
+        if len(q.get("why_wrong") or []) == n:
+            moved["why_wrong"] = [q["why_wrong"][j] for j in order]
+        out.append(moved)
     return out

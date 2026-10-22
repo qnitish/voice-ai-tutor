@@ -6,6 +6,7 @@ import { Button } from '@/components/ui/button'
 import type { Tutor } from '@/engine/tutor'
 import { pressKind, rms, SilenceDetector } from '@/engine/vad'
 import { cn } from '@/lib/utils'
+import { rahi } from '@/lib/voice'
 import { usePlayer } from '@/store/player'
 
 // The STT provider accepts at most ~30 s per request
@@ -19,6 +20,8 @@ const VAD_INTERVAL_MS = 50
  */
 export function MicButton({ tutor }: { tutor: Tutor }) {
   const mode = usePlayer((s) => s.mode)
+  const check = usePlayer((s) => s.check)
+  const lesson = usePlayer((s) => s.lesson)
   const recorder = useRef<MediaRecorder | null>(null)
   const pressed = useRef(false)
   const pressedAt = useRef(0)
@@ -32,7 +35,9 @@ export function MicButton({ tutor }: { tutor: Tutor }) {
   const [tapMode, setTapMode] = useState(false)
   const listening = mode === 'listening'
   const thinking = mode === 'thinking'
-  const enabled = mode === 'playing' || mode === 'paused' || mode === 'answering'
+  const enabled = check
+    ? mode === 'check' && check.followup && !check.busy
+    : mode === 'playing' || mode === 'paused' || mode === 'answering'
 
   /** Watch the mic level; in tap mode, end the recording once the student stops talking. */
   function watchSilence(stream: MediaStream) {
@@ -175,7 +180,7 @@ export function MicButton({ tutor }: { tutor: Tutor }) {
             ? 'Bolo… chup hone par khud bhej denge'
             : 'Bolo… chhodne par bhej denge'
           : thinking
-            ? 'Soch rahi hoon…'
+            ? `Soch ${rahi(lesson)} hoon…`
             : 'Tap or hold to ask (or Space)'}
       </p>
     </div>

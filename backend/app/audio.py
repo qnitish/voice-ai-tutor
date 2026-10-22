@@ -8,6 +8,7 @@ from pathlib import Path
 from app.config import settings
 from app.providers import get_tts
 from app.schemas import Spoken
+from app.voices import current_voice, get_voice, is_default
 
 TTS_RATE = 24000
 STT_RATE = 16000
@@ -52,19 +53,24 @@ def save_media(rel_path: str, data: bytes) -> str:
     return f"/media/{rel_path}"
 
 
-async def speak(text: str, rel_path: str) -> Spoken:
-    """TTS the text, store it under media/, and return its URL and duration."""
-    raw = await get_tts().synthesize(text)
+async def speak(text: str, rel_path: str, voice: str | None = None) -> Spoken:
+    """TTS the text in a lesson's voice (None = default), store it under media/, and return its URL and duration."""
+    token = current_voice.set(get_voice(voice))
+    try:
+        raw = await get_tts().synthesize(text)
+    finally:
+        current_voice.reset(token)
     wav, duration_ms = await asyncio.to_thread(to_wav, raw, TTS_RATE)
     return Spoken(text=text, audio_url=save_media(rel_path, wav), duration_ms=duration_ms)
 
 
-async def speak_cached(text: str) -> Spoken:
-    """Like speak(), but reuses audio for fixed lines that recur (feedback, prompts)."""
-    rel_path = f"cache/{hashlib.sha1(text.encode()).hexdigest()[:16]}.wav"
+async def speak_cached(text: str, voice: str | None = None) -> Spoken:
+    """Like speak(), but reuses audio for fixed lines that recur (feedback, prompts), per voice."""
+    folder = "cache" if is_default(voice) else f"cache/{voice}"
+    rel_path = f"{folder}/{hashlib.sha1(text.encode()).hexdigest()[:16]}.wav"
     path = settings.media_dir / rel_path
     if not path.exists():
-        return await speak(text, rel_path)
+        return await speak(text, rel_path, voice)
     with wave.open(str(path)) as w:
         duration_ms = round(w.getnframes() / w.getframerate() * 1000)
     return Spoken(text=text, audio_url=f"/media/{rel_path}", duration_ms=duration_ms)

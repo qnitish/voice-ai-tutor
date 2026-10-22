@@ -1,7 +1,7 @@
 import uuid
 from datetime import datetime
 
-from sqlalchemy import ForeignKey, String, UniqueConstraint, create_engine, func
+from sqlalchemy import ForeignKey, String, UniqueConstraint, create_engine, func, text
 from sqlalchemy.dialects.postgresql import JSONB
 from sqlalchemy.orm import DeclarativeBase, Mapped, mapped_column, relationship, sessionmaker
 
@@ -14,6 +14,13 @@ SessionLocal = sessionmaker(engine, expire_on_commit=False)
 def get_db():
     with SessionLocal() as db:
         yield db
+
+
+def migrate() -> None:
+    """Create tables, plus columns added after a table first existed (create_all doesn't add those)."""
+    Base.metadata.create_all(engine)
+    with engine.begin() as conn:
+        conn.execute(text("ALTER TABLE lessons ADD COLUMN IF NOT EXISTS voice varchar(60)"))
 
 
 def new_id() -> str:
@@ -35,6 +42,8 @@ class Lesson(Base):
     title: Mapped[str]
     # Full source transcript, used to ground live answers
     transcript: Mapped[str]
+    # Tutor voice for everything spoken in this lesson (app.voices); null = the default voice
+    voice: Mapped[str | None] = mapped_column(String(60))
     created_at: Mapped[datetime] = mapped_column(server_default=func.now())
     scenes: Mapped[list["Scene"]] = relationship(
         back_populates="lesson", order_by="Scene.idx", cascade="all, delete-orphan"
@@ -121,6 +130,20 @@ class CheckResult(Base):
     session_id: Mapped[str] = mapped_column(ForeignKey("sessions.id", ondelete="CASCADE"))
     scene_idx: Mapped[int]
     concept: Mapped[str]
+    chosen_index: Mapped[int]
+    correct: Mapped[bool]
+    created_at: Mapped[datetime] = mapped_column(server_default=func.now())
+
+
+class CheckAttempt(Base):
+    """A later answer after a wrong first one: a retry of the same question, or its twin. Not a CheckResult."""
+
+    __tablename__ = "check_attempts"
+    __table_args__ = (UniqueConstraint("session_id", "scene_idx", "kind"),)
+    id: Mapped[int] = mapped_column(primary_key=True)
+    session_id: Mapped[str] = mapped_column(ForeignKey("sessions.id", ondelete="CASCADE"))
+    scene_idx: Mapped[int]
+    kind: Mapped[str] = mapped_column(String(10))  # "retry" | "twin" | "skip" | "twin_skip"
     chosen_index: Mapped[int]
     correct: Mapped[bool]
     created_at: Mapped[datetime] = mapped_column(server_default=func.now())

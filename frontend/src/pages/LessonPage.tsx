@@ -30,6 +30,7 @@ export function LessonPage({ slug, onExit }: { slug: string; onExit: () => void 
   const caption = usePlayer((s) => s.caption)
   const layer = usePlayer((s) => s.layer)
   const error = usePlayer((s) => s.error)
+  const check = usePlayer((s) => s.check)
 
   useEffect(() => {
     // One engine per mount; StrictMode's extra mount/unmount gets its own instance
@@ -68,7 +69,8 @@ export function LessonPage({ slug, onExit }: { slug: string; onExit: () => void 
   if (!lesson || !tutor) return <p className="text-muted-foreground p-8 text-sm">Loading lesson…</p>
 
   const scene = lesson.scenes[sceneIdx]
-  const overlay = mode === 'check' ? <CheckCard tutor={tutor} /> : mode === 'summary' || mode === 'done' ? <SummaryCard onExit={onExit} /> : null
+  // The card stays up while the student asks a follow-up from it, and hides while the board is in use
+  const overlay = check && ['check', 'listening', 'thinking'].includes(mode) ? <CheckCard tutor={tutor} /> : mode === 'summary' || mode === 'done' ? <SummaryCard onExit={onExit} /> : null
 
   return (
     <div className="mx-auto flex w-full max-w-7xl flex-col gap-4">

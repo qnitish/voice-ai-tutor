@@ -30,6 +30,15 @@ export interface Clip {
   duration_ms: number
 }
 
+export interface TwinQuestion {
+  question: string
+  say: string
+  options: string[]
+  correct_index: number
+  explanation: string
+  audio_url: string
+}
+
 export interface CheckQuestion {
   question: string
   say: string
@@ -38,6 +47,15 @@ export interface CheckQuestion {
   concept: string
   explanation: string
   audio_url: string
+  // Help after a wrong answer; missing on lessons prepared without the `remedy` stage
+  /** Hint per option (null for the correct one), played after a wrong pick */
+  why_wrong?: (Spoken | null)[]
+  /** Fresh explanation on the doubt board after a second wrong pick */
+  reteach?: Clip[]
+  /** "Kis part mein confusion hua?", played while the mic is open */
+  followup?: Spoken
+  /** Same concept, asked a scene later */
+  twin?: TwinQuestion | null
 }
 
 export interface Scene {
@@ -53,6 +71,9 @@ export interface Lesson {
   slug: string
   title: string
   version: number
+  /** Tutor voice (null = default); fillers and bridges are fetched for it */
+  voice: string | null
+  voice_gender: 'female' | 'male'
   scenes: Scene[]
 }
 
@@ -127,6 +148,7 @@ export type Intent =
   | 'prerequisite'
   | 'confused'
   | 'repeat'
+  | 'continue'
   | 'off_topic'
   | 'unclear'
   | 'clarify'
