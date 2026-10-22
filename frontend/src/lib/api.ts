@@ -5,8 +5,11 @@ import type {
   Clip,
   Guest,
   Lesson,
+  LessonProgress,
   LessonSummary,
   QuestionResult,
+  Resume,
+  SessionState,
   SessionSummary,
   Spoken,
   TutorSession,
@@ -18,12 +21,19 @@ export const api = {
   listLessons: () => http.get<LessonSummary[]>('/lessons').then((r) => r.data),
   getLesson: (slug: string) => http.get<Lesson>(`/lessons/${slug}`).then((r) => r.data),
   fillers: () => http.get<Spoken[]>('/fillers').then((r) => r.data),
+  bridges: () => http.get<Spoken[]>('/bridges').then((r) => r.data),
 
   createGuest: (body: { name: string; class_level: number | null; language: string }) =>
     http.post<Guest>('/guests', body).then((r) => r.data),
   getGuest: (id: string) => http.get<Guest>(`/guests/${id}`).then((r) => r.data),
   createSession: (guest_id: string, lesson_slug: string) =>
     http.post<TutorSession>('/sessions', { guest_id, lesson_slug }).then((r) => r.data),
+  progress: (guestId: string) => http.get<LessonProgress[]>(`/guests/${guestId}/progress`).then((r) => r.data),
+  resume: (guestId: string, slug: string) =>
+    http.get<Resume | null>(`/guests/${guestId}/lessons/${slug}/resume`).then((r) => r.data),
+  sessionState: (sessionId: string) => http.get<SessionState>(`/sessions/${sessionId}/state`).then((r) => r.data),
+  savePosition: (sessionId: string, sceneIdx: number, stepIdx: number) =>
+    http.post(`/sessions/${sessionId}/position`, { scene_idx: sceneIdx, step_idx: stepIdx }),
 
   askQuestion: (sessionId: string, audio: Blob, sceneIdx: number, stepIdx: number) => {
     const form = new FormData()

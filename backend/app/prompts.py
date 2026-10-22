@@ -71,18 +71,27 @@ Return JSON only:
 CLASSIFY_SYSTEM = f"""\
 You route a student's spoken doubt during a live whiteboard lesson. The student pressed the mic while the
 tutor was on scene `current_scene_idx`. Their words come from speech-to-text and may be messy Hindi or
-Hinglish, in Devanagari or Roman script.
+Hinglish, in Devanagari or Roman script. Technical words are often misheard: use the lesson vocabulary to
+correct them when you rewrite the question. Earlier doubts of this session are given so you can understand
+follow-ups like "aur woh wala?".
 
 Choose one intent:
 - "covered_later": the doubt is clearly answered by a LATER scene (index > current_scene_idx). Set target_scene_idx.
 - "not_covered": a genuine doubt about the topic that no later scene answers (it may be about the current or an
   earlier scene). It is answered at the end of the current scene.
-- "repeat": the student wants the current point repeated, slowed down or explained again.
-- "off_topic": not about this lesson.
+- "prerequisite": the student is missing basic knowledge from an earlier class that this lesson assumes
+  (e.g. "vector kya hota hai?", "integration kya hai?"). It is explained briefly right away.
+- "confused": the student did not understand what was just explained ("samajh nahi aaya", "yeh kaise hua?").
+  It is re-explained right away in a different way.
+- "repeat": the student only wants to hear the last part again ("phir se bolo", "dobara sunao", "slow bolo").
+- "off_topic": not about this lesson or its prerequisites.
 - "unclear": empty, noise, or not understandable.
 
+"confidence": 0 to 1, how sure you are of BOTH the intent and your rewritten question. Use below 0.6 when the
+speech-to-text is garbled and you had to guess what the student meant.
+
 Return JSON only:
-{{"intent": "...", "question": "the doubt rewritten clearly in Hinglish (Roman script)",
+{{"intent": "...", "question": "the doubt rewritten clearly in Hinglish (Roman script)", "confidence": 0.9,
   "target_scene_idx": null, "ack": null, "callback": null}}
 
 "ack": only for off_topic, a brief friendly spoken reply that nudges back to the lesson; otherwise null.
@@ -97,7 +106,11 @@ fresh, blank whiteboard.
 
 Answer ONLY from the lecture transcript and the lesson content you are given. If the doubt goes beyond them,
 say briefly that this comes in a later chapter ("yeh hum aage padhenge") and give at most a one-line intuition.
-For intent "repeat", re-explain the current scene's point with a NEW, simpler example.
+By intent:
+- "prerequisite": explain the basic idea in the simplest words with one everyday example, then connect it back
+  to the current point in one line ("ab isi ko hum yahan use kar rahe hain").
+- "confused": re-explain the point from the narration so far in a DIFFERENT way, with a NEW, simpler example.
+These two are played in the middle of the lesson, so keep them to exactly 3 lines.
 
 Output format: NDJSON. Write 3 or 4 separate JSON objects, each on its own line, nothing else
 (no code fences, no blank lines, no wrapping array). Each line is ONE short spoken sentence plus at most
@@ -128,7 +141,23 @@ Return JSON only:
 FIXED_ACKS = {
     "covered_later": "Bahut accha sawal! Yeh hum thodi der mein detail mein dekhenge, pehle yeh point khatam karte hain.",
     "not_covered": "Accha sawal hai! Yeh point khatam karke main iska jawab deti hoon.",
-    "repeat": "Bilkul, isko ek naye example se dobara samajhte hain.",
+    "prerequisite": "Accha, pehle iska basic samajh lete hain.",
+    "confused": "Koi baat nahi, isko ek aur tarike se samjhati hoon.",
+    "repeat": "Haan, yeh hissa phir se sunati hoon.",
     "unclear": "Sorry, mujhe theek se sunai nahi diya. Ek baar phir se bologe?",
     "off_topic": "Hmm, chalo pehle apna lesson continue karte hain.",
 }
+
+
+def clarify_ack(question: str) -> str:
+    """Asked back when routing is unsure; the student confirms with a short "haan"."""
+    mark = "" if question.endswith("?") else "?"
+    return f"Kya tum yeh pooch rahe ho: {question}{mark} Agar haan, toh mic dabake haan bolo."
+
+
+# Played after an answer, before the lesson continues
+BRIDGES = [
+    "Chalo, ab wapas lesson pe aate hain.",
+    "Theek hai, ab aage badhte hain.",
+    "Accha, toh hum yahan the.",
+]

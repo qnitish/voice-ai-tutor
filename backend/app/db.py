@@ -1,7 +1,7 @@
 import uuid
 from datetime import datetime
 
-from sqlalchemy import ForeignKey, String, create_engine, func
+from sqlalchemy import ForeignKey, String, UniqueConstraint, create_engine, func
 from sqlalchemy.dialects.postgresql import JSONB
 from sqlalchemy.orm import DeclarativeBase, Mapped, mapped_column, relationship, sessionmaker
 
@@ -25,9 +25,13 @@ class Base(DeclarativeBase):
 
 
 class Lesson(Base):
+    """One published version of a lesson. Re-running prep adds a version; old ones keep their sessions."""
+
     __tablename__ = "lessons"
+    __table_args__ = (UniqueConstraint("slug", "version"),)
     id: Mapped[int] = mapped_column(primary_key=True)
-    slug: Mapped[str] = mapped_column(String(100), unique=True)
+    slug: Mapped[str] = mapped_column(String(100), index=True)
+    version: Mapped[int] = mapped_column(default=1)
     title: Mapped[str]
     # Full source transcript, used to ground live answers
     transcript: Mapped[str]
@@ -70,6 +74,7 @@ class Guest(Base):
     name: Mapped[str]
     class_level: Mapped[int | None]
     language: Mapped[str] = mapped_column(default="hinglish")
+    # Concepts named weak by session summaries; GuestOut merges these with low mastery scores
     weak_concepts: Mapped[list] = mapped_column(JSONB, default=list)
     created_at: Mapped[datetime] = mapped_column(server_default=func.now())
 
@@ -79,8 +84,14 @@ class TutorSession(Base):
     id: Mapped[str] = mapped_column(String(32), primary_key=True, default=new_id)
     guest_id: Mapped[str] = mapped_column(ForeignKey("guests.id", ondelete="CASCADE"))
     lesson_id: Mapped[int] = mapped_column(ForeignKey("lessons.id", ondelete="CASCADE"))
+    # Set once the session summary has been generated, i.e. the lesson was finished
     summary: Mapped[dict | None] = mapped_column(JSONB)
+    # Step the student last started, for resuming
+    position_scene: Mapped[int | None]
+    position_step: Mapped[int | None]
     created_at: Mapped[datetime] = mapped_column(server_default=func.now())
+    # Last activity (position, doubt, check, summary)
+    updated_at: Mapped[datetime] = mapped_column(server_default=func.now())
     guest: Mapped[Guest] = relationship()
     lesson: Mapped[Lesson] = relationship()
 
@@ -94,6 +105,12 @@ class Doubt(Base):
     question: Mapped[str]
     intent: Mapped[str]
     target_scene_idx: Mapped[int | None]
+    # covered_later only: the "Tumne pucha tha…" line, audio at /media/doubts/<id>_callback.wav
+    callback: Mapped[str | None]
+    confidence: Mapped[float | None]
+    # For a "clarify" doubt: the classification waiting for the student to confirm it
+    pending: Mapped[dict | None] = mapped_column(JSONB)
+    resolved: Mapped[bool] = mapped_column(default=False)
     answer: Mapped[list | None] = mapped_column(JSONB)
     created_at: Mapped[datetime] = mapped_column(server_default=func.now())
 
@@ -107,3 +124,14 @@ class CheckResult(Base):
     chosen_index: Mapped[int]
     correct: Mapped[bool]
     created_at: Mapped[datetime] = mapped_column(server_default=func.now())
+
+
+class ConceptMastery(Base):
+    """How well a guest knows a concept, 0..1; see app.progress for the update rule."""
+
+    __tablename__ = "concept_mastery"
+    guest_id: Mapped[str] = mapped_column(ForeignKey("guests.id", ondelete="CASCADE"), primary_key=True)
+    concept: Mapped[str] = mapped_column(primary_key=True)
+    score: Mapped[float]
+    attempts: Mapped[int] = mapped_column(default=0)
+    updated_at: Mapped[datetime] = mapped_column(server_default=func.now(), onupdate=func.now())

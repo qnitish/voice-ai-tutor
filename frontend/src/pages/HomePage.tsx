@@ -4,11 +4,12 @@ import { toast } from 'sonner'
 
 import { Button } from '@/components/ui/button'
 import { Card, CardContent, CardDescription, CardFooter, CardHeader, CardTitle } from '@/components/ui/card'
+import { Progress } from '@/components/ui/progress'
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select'
 import { api } from '@/lib/api'
-import type { LessonSummary } from '@/lib/types'
+import type { LessonProgress, LessonSummary } from '@/lib/types'
 import { useGuestStore } from '@/store/guest'
 
 function GuestForm() {
@@ -86,10 +87,19 @@ function GuestForm() {
 export function HomePage({ onStart }: { onStart: (slug: string) => void }) {
   const { guest, setGuest } = useGuestStore()
   const [lessons, setLessons] = useState<LessonSummary[] | null>(null)
+  const [progress, setProgress] = useState<Record<string, LessonProgress>>({})
 
   useEffect(() => {
     api.listLessons().then(setLessons, () => setLessons([]))
   }, [])
+
+  useEffect(() => {
+    if (!guest) return
+    api.progress(guest.id).then(
+      (rows) => setProgress(Object.fromEntries(rows.map((p) => [p.slug, p]))),
+      () => setProgress({}),
+    )
+  }, [guest?.id])
 
   // Drop a stale guest id (e.g. after the database was reset)
   useEffect(() => {
@@ -116,20 +126,32 @@ export function HomePage({ onStart }: { onStart: (slug: string) => void }) {
         </p>
       )}
       <div className="grid gap-4 sm:grid-cols-2">
-        {lessons?.map((l) => (
-          <Card key={l.slug}>
-            <CardHeader>
-              <BookOpen className="text-muted-foreground mb-2 size-5" />
-              <CardTitle className="leading-snug">{l.title}</CardTitle>
-              <CardDescription>{l.scene_count} scenes</CardDescription>
-            </CardHeader>
-            <CardFooter className="mt-4">
-              <Button onClick={() => onStart(l.slug)}>
-                <Play className="size-4" /> Start lesson
-              </Button>
-            </CardFooter>
-          </Card>
-        ))}
+        {lessons?.map((l) => {
+          const p = progress[l.slug]
+          return (
+            <Card key={l.slug}>
+              <CardHeader>
+                <BookOpen className="text-muted-foreground mb-2 size-5" />
+                <CardTitle className="leading-snug">{l.title}</CardTitle>
+                <CardDescription>
+                  {l.scene_count} scenes
+                  {p && p.checks_total > 0 && ` · ${p.checks_correct}/${p.checks_total} checks correct`}
+                </CardDescription>
+              </CardHeader>
+              {p && (
+                <CardContent className="mt-4 flex items-center gap-3">
+                  <Progress value={p.percent} className="flex-1" />
+                  <span className="text-muted-foreground text-xs">{p.completed ? 'Done' : `${p.percent}%`}</span>
+                </CardContent>
+              )}
+              <CardFooter className="mt-4">
+                <Button onClick={() => onStart(l.slug)}>
+                  <Play className="size-4" /> {p?.resume ? 'Continue lesson' : 'Start lesson'}
+                </Button>
+              </CardFooter>
+            </Card>
+          )
+        })}
       </div>
     </div>
   )

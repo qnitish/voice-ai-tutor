@@ -52,6 +52,7 @@ export interface Scene {
 export interface Lesson {
   slug: string
   title: string
+  version: number
   scenes: Scene[]
 }
 
@@ -59,6 +60,7 @@ export interface LessonSummary {
   slug: string
   title: string
   scene_count: number
+  version: number
 }
 
 export interface Guest {
@@ -73,6 +75,44 @@ export interface TutorSession {
   id: string
   guest: Guest
   lesson_slug: string
+  lesson_version: number
+}
+
+export interface Resume {
+  session_id: string
+  scene_idx: number
+  step_idx: number
+}
+
+/** A session as saved on the server, for resuming with its earlier doubts. */
+export interface SessionState {
+  session_id: string
+  completed: boolean
+  position: { scene_idx: number; step_idx: number } | null
+  answered_checks: number[]
+  doubts: {
+    id: string
+    scene_idx: number
+    step_idx: number
+    question: string
+    intent: Intent
+    target_scene_idx: number | null
+    answered: boolean
+    callback: Spoken | null
+  }[]
+}
+
+export interface LessonProgress {
+  slug: string
+  title: string
+  version: number
+  percent: number
+  completed: boolean
+  checks_correct: number
+  checks_total: number
+  doubts: number
+  sessions: number
+  resume: Resume | null
 }
 
 export interface Spoken {
@@ -81,8 +121,17 @@ export interface Spoken {
   duration_ms: number
 }
 
-export type Intent = 'covered_later' | 'not_covered' | 'repeat' | 'off_topic' | 'unclear'
-export type AnswerWhen = 'none' | 'step_end' | 'scene_end' | 'target_scene'
+export type Intent =
+  | 'covered_later'
+  | 'not_covered'
+  | 'prerequisite'
+  | 'confused'
+  | 'repeat'
+  | 'off_topic'
+  | 'unclear'
+  | 'clarify'
+/** "now" plays the answer immediately; "replay" restarts the current step */
+export type AnswerWhen = 'none' | 'now' | 'replay' | 'step_end' | 'scene_end' | 'target_scene'
 
 export interface QuestionResult {
   doubt_id: string

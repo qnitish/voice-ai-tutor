@@ -15,6 +15,8 @@ class Settings(BaseSettings):
     azure_openai_endpoint: str
     azure_openai_api_version: str = "2024-10-21"
     azure_openai_deployment: str = "gpt-4o"
+    # Doubt routing only; set to a faster deployment (e.g. gpt-4o-mini) to cut routing latency
+    azure_openai_routing_deployment: str | None = None
 
     # Which provider implementation to use; see app/providers/__init__.py
     stt_provider: str = "gnani"
@@ -25,6 +27,10 @@ class Settings(BaseSettings):
     gnani_tts_voice: str = "Shivani"
     gnani_tts_language: str = "hi-en"
     gnani_stt_language: str = "hi-IN"
+
+    @property
+    def routing_deployment(self) -> str:
+        return self.azure_openai_routing_deployment or self.azure_openai_deployment
 
     @property
     def media_dir(self) -> Path:

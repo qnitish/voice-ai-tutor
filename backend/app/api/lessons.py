@@ -1,11 +1,11 @@
 import json
 
 from fastapi import APIRouter, Depends, HTTPException
-from sqlalchemy import select
 from sqlalchemy.orm import Session
 
 from app.config import settings
 from app.db import Lesson, get_db
+from app.lesson_store import latest_lesson, latest_lessons
 from app.schemas import LessonOut, LessonSummaryOut, SceneOut, Spoken, StepOut
 
 router = APIRouter(prefix="/api")
@@ -15,6 +15,7 @@ def lesson_out(lesson: Lesson) -> LessonOut:
     return LessonOut(
         slug=lesson.slug,
         title=lesson.title,
+        version=lesson.version,
         scenes=[
             SceneOut(
                 idx=s.idx,
@@ -34,19 +35,31 @@ def lesson_out(lesson: Lesson) -> LessonOut:
 
 @router.get("/lessons", response_model=list[LessonSummaryOut])
 def list_lessons(db: Session = Depends(get_db)):
-    lessons = db.scalars(select(Lesson).order_by(Lesson.created_at.desc())).all()
-    return [LessonSummaryOut(slug=l.slug, title=l.title, scene_count=len(l.scenes)) for l in lessons]
+    return [
+        LessonSummaryOut(slug=l.slug, title=l.title, scene_count=len(l.scenes), version=l.version)
+        for l in latest_lessons(db)
+    ]
 
 
 @router.get("/lessons/{slug}", response_model=LessonOut)
 def get_lesson(slug: str, db: Session = Depends(get_db)):
-    lesson = db.scalars(select(Lesson).filter_by(slug=slug)).one_or_none()
+    lesson = latest_lesson(db, slug)
     if not lesson:
         raise HTTPException(404, "Lesson not found")
     return lesson_out(lesson)
 
 
+def _manifest(name: str) -> list:
+    manifest = settings.media_dir / "fillers" / name
+    return json.loads(manifest.read_text()) if manifest.exists() else []
+
+
 @router.get("/fillers", response_model=list[Spoken])
 def fillers():
-    manifest = settings.media_dir / "fillers" / "fillers.json"
-    return json.loads(manifest.read_text()) if manifest.exists() else []
+    return _manifest("fillers.json")
+
+
+@router.get("/bridges", response_model=list[Spoken])
+def bridges():
+    """Lines played after an answer, before the lesson continues."""
+    return _manifest("bridges.json")

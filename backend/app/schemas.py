@@ -1,4 +1,5 @@
 import re
+from datetime import datetime
 from typing import Annotated, Literal
 
 from pydantic import BaseModel, Field, TypeAdapter, ValidationError, model_validator
@@ -156,7 +157,10 @@ class SceneDraft(BaseModel):
         return self
 
 
-Intent = Literal["covered_later", "not_covered", "repeat", "off_topic", "unclear"]
+Intent = Literal[
+    "covered_later", "not_covered", "prerequisite", "confused", "repeat", "off_topic", "unclear", "clarify"
+]
+AnswerWhen = Literal["none", "now", "replay", "step_end", "scene_end", "target_scene"]
 
 
 class Classification(BaseModel):
@@ -165,6 +169,8 @@ class Classification(BaseModel):
     target_scene_idx: int | None = None
     ack: str | None = None
     callback: str | None = None
+    # Below 0.6 the tutor asks the student to confirm the rewritten question first
+    confidence: float = Field(default=1.0, ge=0, le=1)
 
 
 class SummaryDraft(BaseModel):
@@ -197,11 +203,13 @@ class LessonSummaryOut(BaseModel):
     slug: str
     title: str
     scene_count: int
+    version: int
 
 
 class LessonOut(BaseModel):
     slug: str
     title: str
+    version: int
     scenes: list[SceneOut]
 
 
@@ -228,6 +236,53 @@ class SessionOut(BaseModel):
     id: str
     guest: GuestOut
     lesson_slug: str
+    lesson_version: int
+
+
+class Position(BaseModel):
+    scene_idx: int
+    step_idx: int
+
+
+class ResumeOut(Position):
+    session_id: str
+
+
+class MasteryOut(BaseModel):
+    concept: str
+    score: float
+    attempts: int
+
+
+class ProgressOut(BaseModel):
+    slug: str
+    title: str
+    version: int
+    percent: int
+    completed: bool
+    checks_correct: int
+    checks_total: int
+    doubts: int
+    sessions: int
+    resume: ResumeOut | None
+
+
+class HistoryDoubt(BaseModel):
+    question: str
+    intent: str
+    answered: bool
+
+
+class HistoryOut(BaseModel):
+    session_id: str
+    slug: str
+    title: str
+    version: int
+    created_at: datetime
+    completed: bool
+    checks_correct: int
+    checks_total: int
+    doubts: list[HistoryDoubt]
 
 
 class Spoken(BaseModel):
@@ -242,8 +297,8 @@ class QuestionOut(BaseModel):
     question: str
     intent: Intent
     target_scene_idx: int | None
-    # When the player should deliver the answer
-    answer_when: Literal["none", "step_end", "scene_end", "target_scene"]
+    # When the player should deliver the answer ("replay" restarts the current step, no answer)
+    answer_when: AnswerWhen
     ack: Spoken
     callback: Spoken | None = None
 
@@ -265,3 +320,25 @@ class SummaryOut(BaseModel):
     weak_concepts: list[str]
     revise: list[str]
     speech: Spoken
+
+
+# ---- resuming a session ----
+
+
+class StateDoubt(BaseModel):
+    id: str
+    scene_idx: int
+    step_idx: int
+    question: str
+    intent: str
+    target_scene_idx: int | None
+    answered: bool
+    callback: Spoken | None
+
+
+class SessionStateOut(BaseModel):
+    session_id: str
+    completed: bool
+    position: Position | None
+    answered_checks: list[int]
+    doubts: list[StateDoubt]

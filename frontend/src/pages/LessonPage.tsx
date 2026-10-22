@@ -10,9 +10,11 @@ import { SummaryCard } from '@/components/SummaryCard'
 import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
 import { Progress } from '@/components/ui/progress'
+import { progressPercent } from '@/engine/board'
+import { restoreSession } from '@/engine/restore'
 import { Tutor } from '@/engine/tutor'
 import { api } from '@/lib/api'
-import type { Lesson } from '@/lib/types'
+import type { Lesson, Resume } from '@/lib/types'
 import { useGuestStore } from '@/store/guest'
 import { initialPlayerState, setPlayer, usePlayer } from '@/store/player'
 
@@ -20,6 +22,7 @@ export function LessonPage({ slug, onExit }: { slug: string; onExit: () => void 
   const guest = useGuestStore((s) => s.guest)
   const [lesson, setLesson] = useState<Lesson | null>(null)
   const [tutor, setTutor] = useState<Tutor | null>(null)
+  const [resume, setResume] = useState<Resume | null>(null)
 
   const mode = usePlayer((s) => s.mode)
   const sceneIdx = usePlayer((s) => s.sceneIdx)
@@ -40,14 +43,24 @@ export function LessonPage({ slug, onExit }: { slug: string; onExit: () => void 
   }, [slug])
 
   useEffect(() => {
+    if (guest) api.resume(guest.id, slug).then(setResume, () => setResume(null))
+  }, [guest, slug])
+
+  useEffect(() => {
     if (error) {
       toast.error(error)
       setPlayer({ error: null })
     }
   }, [error])
 
-  async function start() {
+  async function start(from: Resume | null) {
     if (!lesson || !guest || !tutor) return
+    if (from) {
+      // Bring back the session's earlier doubts; without them the lesson still resumes
+      const state = await api.sessionState(from.session_id).catch(() => null)
+      const restored = state ? restoreSession(state, from.scene_idx) : undefined
+      return tutor.start(lesson, from.session_id, { sceneIdx: from.scene_idx, stepIdx: from.step_idx, restored })
+    }
     const session = await api.createSession(guest.id, lesson.slug)
     await tutor.start(lesson, session.id)
   }
@@ -55,8 +68,6 @@ export function LessonPage({ slug, onExit }: { slug: string; onExit: () => void 
   if (!lesson || !tutor) return <p className="text-muted-foreground p-8 text-sm">Loading lesson…</p>
 
   const scene = lesson.scenes[sceneIdx]
-  const totalSteps = lesson.scenes.reduce((n, s) => n + s.steps.length, 0)
-  const doneSteps = lesson.scenes.slice(0, sceneIdx).reduce((n, s) => n + s.steps.length, 0) + stepIdx
   const overlay = mode === 'check' ? <CheckCard tutor={tutor} /> : mode === 'summary' || mode === 'done' ? <SummaryCard onExit={onExit} /> : null
 
   return (
@@ -71,7 +82,7 @@ export function LessonPage({ slug, onExit }: { slug: string; onExit: () => void 
             Scene {sceneIdx + 1}/{lesson.scenes.length}: {scene?.title}
           </p>
         </div>
-        <Progress value={(doneSteps / totalSteps) * 100} className="w-40" />
+        <Progress value={progressPercent(lesson, sceneIdx, stepIdx)} className="w-40" />
       </header>
 
       <div className="grid gap-4 lg:grid-cols-[1fr_300px]">
@@ -84,11 +95,22 @@ export function LessonPage({ slug, onExit }: { slug: string; onExit: () => void 
             {mode === 'idle' && (
               <div className="absolute inset-0 flex flex-col items-center justify-center gap-4 bg-white/80">
                 <p className="text-muted-foreground max-w-sm text-center text-sm">
-                  {lesson.scenes.length} scenes. Hold the mic button anytime to ask a doubt in Hindi or Hinglish.
+                  {lesson.scenes.length} scenes. Tap or hold the mic anytime to ask a doubt in Hindi or Hinglish.
                 </p>
-                <Button size="lg" onClick={() => void start()}>
-                  <Play className="size-4" /> Start lesson
-                </Button>
+                {resume ? (
+                  <div className="flex flex-wrap justify-center gap-3">
+                    <Button size="lg" onClick={() => void start(resume)}>
+                      <Play className="size-4" /> Continue from scene {resume.scene_idx + 1}
+                    </Button>
+                    <Button size="lg" variant="outline" onClick={() => void start(null)}>
+                      Start over
+                    </Button>
+                  </div>
+                ) : (
+                  <Button size="lg" onClick={() => void start(null)}>
+                    <Play className="size-4" /> Start lesson
+                  </Button>
+                )}
               </div>
             )}
             {overlay && <div className="absolute inset-0 flex items-center justify-center bg-black/20 p-4">{overlay}</div>}

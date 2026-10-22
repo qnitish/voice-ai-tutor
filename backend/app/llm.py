@@ -15,12 +15,14 @@ client = AsyncAzureOpenAI(
 )
 
 
-async def complete_json(system: str, user: str, schema: type[T], temperature: float = 0.4) -> T:
+async def complete_json(
+    system: str, user: str, schema: type[T], temperature: float = 0.4, model: str | None = None
+) -> T:
     """Ask for a JSON object and validate it, giving the model one chance to fix errors."""
     messages = [{"role": "system", "content": system}, {"role": "user", "content": user}]
     for attempt in range(2):
         resp = await client.chat.completions.create(
-            model=settings.azure_openai_deployment,
+            model=model or settings.azure_openai_deployment,
             messages=messages,
             response_format={"type": "json_object"},
             temperature=temperature,
@@ -38,10 +40,12 @@ async def complete_json(system: str, user: str, schema: type[T], temperature: fl
     raise AssertionError("unreachable")
 
 
-async def stream_lines(system: str, user: str, temperature: float = 0.5) -> AsyncIterator[str]:
+async def stream_lines(
+    system: str, user: str, temperature: float = 0.5, model: str | None = None
+) -> AsyncIterator[str]:
     """Stream the completion and yield it one complete line at a time."""
     stream = await client.chat.completions.create(
-        model=settings.azure_openai_deployment,
+        model=model or settings.azure_openai_deployment,
         messages=[{"role": "system", "content": system}, {"role": "user", "content": user}],
         temperature=temperature,
         stream=True,

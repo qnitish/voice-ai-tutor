@@ -14,9 +14,10 @@ from pathlib import Path
 
 from app.audio import speak, speak_cached, split_for_stt
 from app.config import settings
-from app.db import Base, Lesson, Scene, SessionLocal, Step, engine
-from app.llm import complete_json
-from app.prompts import FIXED_ACKS, OUTLINE_SYSTEM, SCENE_SYSTEM
+from app.db import Base, SessionLocal, engine
+from app.lesson_store import publish_lesson
+from app import llm
+from app.prompts import BRIDGES, FIXED_ACKS, OUTLINE_SYSTEM, SCENE_SYSTEM
 from app.providers import get_stt
 from app.schemas import Outline, SceneDraft, clean_draw
 
@@ -60,7 +61,7 @@ async def make_scene(outline: Outline, idx: int, transcript: str, earlier: list[
         f"Write scene index {idx}: {outline.scenes[idx].model_dump_json()}\n\n"
         f"Lecture transcript:\n{transcript}"
     )
-    draft = await complete_json(SCENE_SYSTEM, user, SceneDraft)
+    draft = await llm.complete_json(SCENE_SYSTEM, user, SceneDraft)
     for step in draft.steps:
         step.draw = clean_draw(step.draw)
     return draft
@@ -86,38 +87,26 @@ async def narrate(slug: str, scenes: list[SceneDraft]) -> list[dict]:
 
 
 async def make_fillers() -> None:
-    """Pre-generate the lines played instantly during live questions."""
+    """Pre-generate the lines played instantly during live questions and after answers."""
     for text in FIXED_ACKS.values():
         await speak_cached(text)
-    manifest = settings.media_dir / "fillers" / "fillers.json"
-    if manifest.exists():
-        return
-    spoken = await asyncio.gather(*(speak(t, f"fillers/{i}.wav") for i, t in enumerate(FILLERS)))
-    manifest.write_text(json.dumps([s.model_dump() for s in spoken], ensure_ascii=False, indent=1))
+    for name, lines in (("fillers", FILLERS), ("bridges", BRIDGES)):
+        manifest = settings.media_dir / "fillers" / f"{name}.json"
+        if manifest.exists():
+            continue
+        spoken = await asyncio.gather(*(speak(t, f"fillers/{name}_{i}.wav") for i, t in enumerate(lines)))
+        manifest.write_text(json.dumps([s.model_dump() for s in spoken], ensure_ascii=False, indent=1))
 
 
-def load_db(slug: str, outline: Outline, transcript: str, scenes: list[dict]) -> None:
+def load_db(slug: str, outline: Outline, transcript: str, scenes: list[dict]) -> int:
+    """Publish as a new lesson version; returns the version number."""
     Base.metadata.create_all(engine)
+    rows = [
+        {"title": meta.title, "goal": meta.goal, "key_terms": meta.key_terms, **scene}
+        for meta, scene in zip(outline.scenes, scenes)
+    ]
     with SessionLocal.begin() as db:
-        if old := db.query(Lesson).filter_by(slug=slug).one_or_none():
-            db.delete(old)
-            db.flush()
-        lesson = Lesson(slug=slug, title=outline.title, transcript=transcript)
-        for si, (meta, scene) in enumerate(zip(outline.scenes, scenes)):
-            lesson.scenes.append(
-                Scene(
-                    idx=si,
-                    title=meta.title,
-                    goal=meta.goal,
-                    key_terms=meta.key_terms,
-                    check_question=scene["check_question"],
-                    steps=[
-                        Step(idx=i, say=s["say"], draw=s["draw"], audio_url=s["audio_url"], duration_ms=s["duration_ms"])
-                        for i, s in enumerate(scene["steps"])
-                    ],
-                )
-            )
-        db.add(lesson)
+        return publish_lesson(db, slug, outline.title, transcript, rows).version
 
 
 async def run(args: argparse.Namespace) -> None:
@@ -142,7 +131,7 @@ async def run(args: argparse.Namespace) -> None:
     )
 
     async def outline_json():
-        return (await complete_json(OUTLINE_SYSTEM, transcript, Outline)).model_dump()
+        return (await llm.complete_json(OUTLINE_SYSTEM, transcript, Outline)).model_dump()
 
     outline = Outline.model_validate(await cached("outline", outline_json))
 
@@ -156,9 +145,11 @@ async def run(args: argparse.Namespace) -> None:
     drafts = [SceneDraft.model_validate(d) for d in await cached("scenes", scenes_json)]
     scenes = await cached("audio", lambda: narrate(args.slug, drafts))
     await make_fillers()
-    load_db(args.slug, outline, transcript, scenes)
+    version = load_db(args.slug, outline, transcript, scenes)
     steps = sum(len(s["steps"]) for s in scenes)
-    log.info("loaded lesson '%s' (%s): %d scenes, %d steps", outline.title, args.slug, len(scenes), steps)
+    log.info(
+        "published lesson '%s' (%s v%d): %d scenes, %d steps", outline.title, args.slug, version, len(scenes), steps
+    )
 
 
 def main() -> None:
