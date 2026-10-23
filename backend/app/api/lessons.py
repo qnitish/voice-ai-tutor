@@ -5,6 +5,7 @@ from sqlalchemy.orm import Session
 
 from app.config import settings
 from app.db import Lesson, get_db
+from app.language import lesson_language
 from app.lesson_store import latest_lesson, latest_lessons
 from app.schemas import LessonOut, LessonSummaryOut, SceneOut, Spoken, StepOut
 from app.voices import exists, fillers_dir, get_voice
@@ -19,6 +20,7 @@ def lesson_out(lesson: Lesson) -> LessonOut:
         version=lesson.version,
         voice=lesson.voice,
         voice_gender=get_voice(lesson.voice).gender,
+        language=lesson.language,
         scenes=[
             SceneOut(
                 idx=s.idx,
@@ -39,7 +41,7 @@ def lesson_out(lesson: Lesson) -> LessonOut:
 @router.get("/lessons", response_model=list[LessonSummaryOut])
 def list_lessons(db: Session = Depends(get_db)):
     return [
-        LessonSummaryOut(slug=l.slug, title=l.title, scene_count=len(l.scenes), version=l.version)
+        LessonSummaryOut(slug=l.slug, title=l.title, scene_count=len(l.scenes), version=l.version, language=l.language)
         for l in latest_lessons(db)
     ]
 
@@ -52,19 +54,19 @@ def get_lesson(slug: str, db: Session = Depends(get_db)):
     return lesson_out(lesson)
 
 
-def _manifest(name: str, voice: str | None) -> list:
+def _manifest(name: str, voice: str | None, language: str | None) -> list:
     if not exists(voice):
         return []
-    manifest = fillers_dir(voice) / name
+    manifest = fillers_dir(voice, lesson_language(language)) / name
     return json.loads(manifest.read_text()) if manifest.exists() else []
 
 
 @router.get("/fillers", response_model=list[Spoken])
-def fillers(voice: str | None = None):
-    return _manifest("fillers.json", voice)
+def fillers(voice: str | None = None, language: str | None = None):
+    return _manifest("fillers.json", voice, language)
 
 
 @router.get("/bridges", response_model=list[Spoken])
-def bridges(voice: str | None = None):
+def bridges(voice: str | None = None, language: str | None = None):
     """Lines played after an answer, before the lesson continues."""
-    return _manifest("bridges.json", voice)
+    return _manifest("bridges.json", voice, language)

@@ -3,7 +3,13 @@
 export type Color = 'ink' | 'blue' | 'red' | 'green' | 'orange'
 export type Point = [number, number]
 
-export type DrawAction =
+/** Label positions chosen by `engine/layout` (frontend only), keyed by label slot */
+export interface Placed {
+  labelPos?: Record<string, Point>
+}
+
+export type DrawAction = Placed &
+  (
   | { type: 'text'; id: string; x: number; y: number; text: string; size: 'h1' | 'h2' | 'body' | 'small'; color: Color }
   | { type: 'line'; id: string; start: Point; end: Point; color: Color; dashed: boolean }
   | { type: 'arrow'; id: string; start: Point; end: Point; color: Color; label: string | null }
@@ -22,6 +28,72 @@ export type DrawAction =
     }
   | { type: 'field_mark'; id: string; x: number; y: number; dir: 'in' | 'out'; color: Color }
   | { type: 'highlight'; id: string; target: string; color: Color }
+  // Blocks: drawn with fixed proportions by the board (see engine/geometry.ts)
+  | { type: 'wire'; id: string; start: Point; end: Point; current: string | null; color: Color }
+  | {
+      type: 'charge'
+      id: string
+      x: number
+      y: number
+      sign: '+' | '-'
+      label: string | null
+      velocity_deg: number | null
+      force_deg: number | null
+      color: Color
+    }
+  | { type: 'compass'; id: string; x: number; y: number; needle_deg: number; label: string | null }
+  | { type: 'magnet'; id: string; x: number; y: number; w: number; h: number; north: 'left' | 'right' | 'top' | 'bottom' }
+  | { type: 'axes'; id: string; x: number; y: number; w: number; h: number; x_label: string | null; y_label: string | null; color: Color }
+  | {
+      type: 'region'
+      id: string
+      cx: number
+      cy: number
+      w: number
+      h: number
+      shape: 'ellipse' | 'rect'
+      label: string | null
+      curve_label: string | null
+      orientation: 'ccw' | 'cw' | null
+      color: Color
+    }
+  | {
+      type: 'flow'
+      id: string
+      x: number
+      y: number
+      items: string[]
+      dir: 'down' | 'right'
+      connector: string | null
+      size: 'h2' | 'body' | 'small'
+      color: Color
+    }
+  | {
+      type: 'chain'
+      id: string
+      x: number
+      y: number
+      groups: string[]
+      bonds: Bond[]
+      branches: { at: number; groups: string[]; dir: 'up' | 'down'; bond: Bond }[]
+      color: Color
+    }
+  | { type: 'ring'; id: string; cx: number; cy: number; r: number; size: 3 | 4 | 5 | 6; aromatic: boolean; label: string | null; color: Color }
+  | { type: 'curve'; id: string; points: Point[]; color: Color; dashed: boolean; label: string | null }
+  | {
+      type: 'body'
+      id: string
+      x: number
+      y: number
+      shape: 'ball' | 'box'
+      label: string | null
+      vectors: { deg: number; label: string; color: Color }[]
+      color: Color
+    }
+  | { type: 'ground'; id: string; x: number; y: number; w: number; label: string | null }
+  )
+
+export type Bond = '-' | '=' | '≡'
 
 export interface Clip {
   say: string
@@ -74,6 +146,8 @@ export interface Lesson {
   /** Tutor voice (null = default); fillers and bridges are fetched for it */
   voice: string | null
   voice_gender: 'female' | 'male'
+  /** What the tutor speaks; UI lines follow it (lib/i18n) */
+  language: string
   scenes: Scene[]
 }
 
@@ -82,6 +156,7 @@ export interface LessonSummary {
   title: string
   scene_count: number
   version: number
+  language: string
 }
 
 export interface Guest {

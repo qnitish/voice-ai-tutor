@@ -22,6 +22,10 @@ python3 -m venv .venv && .venv/bin/pip install -r requirements.txt
 # Offline lesson prep: audio -> transcript -> scenes -> narration audio -> Postgres
 .venv/bin/python -m app.prep "../input_audio/<file>.mp3" --slug magnetism-01 --start-min 0 --minutes 12
 .venv/bin/python -m app.prep "../input_audio/<file>.mp3" --slug magnetism-01 --redo scenes   # rerun a stage and all later ones
+# Same lecture in English (video files work too; ffmpeg reads their audio track):
+.venv/bin/python -m app.prep "../input_audio/Lecture 5 Original.MP4" --slug lecture-05 --minutes 17 --voice teacher-clone --lecture-language english
+.venv/bin/python -m app.prep "../input_audio/Lecture 5 Original.MP4" --slug lecture-05-en --minutes 17 --voice teacher-clone \
+    --language english --lecture-language english --share-from lecture-05
 
 # Frontend (Vite dev server on :5173, proxies /api and /media to :8010)
 cd frontend
@@ -80,6 +84,15 @@ write a module and register it in `providers/__init__.py`. Gnani specifics: auth
 serialize with a semaphore); its WAV
 headers carry placeholder sizes, so `audio.to_wav` always re-encodes TTS output and measures duration from the PCM.
 
+**Languages** (`backend/app/language.py`): a lesson is prepared in one language (`lessons.language`, `hinglish` or
+`english`; prep `--language`), and the two versions of a lecture are separate slugs (`--share-from` reuses the
+transcript and outline). For English, `for_gender(system, gender, language)` swaps `SPEECH_RULES` for `SPEECH_RULES_EN`
+and appends `ENGLISH_NOTE` (English forms of the Hinglish phrases the prompts quote); `line_for(..., language)` maps every
+fixed line through `ENGLISH_LINES`; the student's speech is recognised with the lesson's STT code
+(`current_stt_language`); fillers/bridges live in an `english/` subfolder per voice. `--lecture-language` only picks the
+STT language of the recording. The student picks Hinglish/English on the home page (`guests.language`, `PATCH
+/api/guests/{id}`), which lists only lessons in that language; the UI's own lines follow the lesson (`frontend/src/lib/i18n.ts`).
+
 **Voices** (`backend/app/voices.py`): a lesson stores a voice name (`lessons.voice`, null = stock `GNANI_TTS_VOICE`);
 cloned voices are Gnani speaker embeddings in `data/voices/<name>.json` (`python -m app.voices clone …`, only with the
 speaker's permission). Everything spoken for a lesson uses its voice (`speak(..., voice)`, per-voice `speak_cached` and
@@ -87,12 +100,19 @@ filler folders), and a male voice swaps the female first-person rule in prompts 
 
 **Prompts** all live in `backend/app/prompts.py`: shared `SPEECH_RULES` (Roman-script Hinglish, speakable maths, female
 first-person verbs to match the voice) and `DRAW_SPEC` (the whiteboard DSL). The draw action schema is in
-`backend/app/schemas.py`, mirrored in `frontend/src/lib/types.ts` and rendered in `frontend/src/components/Board.tsx`.
-Change all three together. `clean_draw` drops invalid actions instead of failing the step.
+`backend/app/schemas.py`, mirrored in `frontend/src/lib/types.ts`, and turned into strokes and text by
+`frontend/src/engine/geometry.ts` (which `Board.tsx` renders). Change all of them together. Besides primitives there are
+blocks (wire, charge, compass, magnet, axes, region, flow, chain, ring, curve) that the board draws with fixed
+proportions, so the LLM only places them. `clean_draw` drops invalid actions instead of failing the step.
+The LLM's coordinates are not trusted for spacing: `engine/layout.ts` moves overlapping text to a free line, shifts shapes
+whose strokes cross text, keeps diagrams below the title row and places every label (`labelPos`) where it is clear.
+Lesson scenes are laid out whole (`layoutScene`, so labels also avoid later steps and a resume looks the same);
+streamed answers and re-teach clips step by step against the board (`layoutStep`). The layout measures text with a
+canvas, so the board fonts are loaded before playback starts.
 
 **Frontend playback** (`frontend/src/engine/tutor.ts`): the `Tutor` class owns the lesson pointer (scene → step loop) and
 writes state into the Zustand store `store/player.ts`; components only read the store and call engine methods.
-- Draw actions of a clip are spread over its audio duration (`schedule`); `Board` renders progress from
+- Draw actions of a clip are laid out (see above), then spread over its audio duration (`schedule`); `Board` renders progress from
   `audio.currentTime`, so pausing the audio pauses the drawing.
 - `gate()` blocks the loop while the user has paused or the mic is held. Fillers, acks, bridges, feedback and "now"
   answers play on a second `<audio>` element while the main one is held. Holding fades out (`fade.ts`); resuming seeks

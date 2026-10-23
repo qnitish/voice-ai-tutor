@@ -55,9 +55,10 @@ def is_default(name: str | None) -> bool:
     return get_voice(name).name == DEFAULT
 
 
-def fillers_dir(name: str | None):
-    """Fillers and bridges per voice; the default voice's live directly in media/fillers/."""
-    return settings.media_dir / "fillers" / ("" if is_default(name) else name)
+def fillers_dir(name: str | None, language: str = "hinglish"):
+    """Fillers and bridges per voice and language; the default voice's Hinglish ones live directly in media/fillers/."""
+    folder = settings.media_dir / "fillers" / ("" if is_default(name) else name)
+    return folder / "english" if language == "english" else folder
 
 
 def exists(name: str | None) -> bool:

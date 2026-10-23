@@ -90,6 +90,157 @@ class HighlightAction(BaseModel):
     color: Color = "orange"
 
 
+# Blocks: diagram parts the board draws with correct proportions, so the LLM only places them
+
+
+class WireAction(BaseModel):
+    type: Literal["wire"]
+    id: str
+    start: Point
+    end: Point
+    current: str | None = None  # label of the current arrow drawn on the wire, e.g. "I"
+    color: Color = "ink"
+
+
+class ChargeAction(BaseModel):
+    type: Literal["charge"]
+    id: str
+    x: float
+    y: float
+    sign: Literal["+", "-"] = "+"
+    label: str | None = None
+    velocity_deg: float | None = None  # direction of the velocity arrow "v", degrees counter-clockwise from +x
+    force_deg: float | None = None  # direction of the force arrow "F"
+    color: Color = "blue"
+
+
+class CompassAction(BaseModel):
+    type: Literal["compass"]
+    id: str
+    x: float
+    y: float
+    needle_deg: float = 90  # direction the north end points
+    label: str | None = None
+
+
+class MagnetAction(BaseModel):
+    type: Literal["magnet"]
+    id: str
+    x: float
+    y: float
+    w: float = 240
+    h: float = 70
+    north: Literal["left", "right", "top", "bottom"] = "left"
+
+
+class AxesAction(BaseModel):
+    type: Literal["axes"]
+    id: str
+    x: float  # origin
+    y: float
+    w: float = 400
+    h: float = 300
+    x_label: str | None = "x"
+    y_label: str | None = "y"
+    color: Color = "ink"
+
+
+class RegionAction(BaseModel):
+    type: Literal["region"]
+    id: str
+    cx: float
+    cy: float
+    w: float
+    h: float
+    shape: Literal["ellipse", "rect"] = "ellipse"
+    label: str | None = None  # inside the region, e.g. "R"
+    curve_label: str | None = None  # next to the boundary, e.g. "C"
+    orientation: Literal["ccw", "cw"] | None = None
+    color: Color = "ink"
+
+
+class FlowAction(BaseModel):
+    type: Literal["flow"]
+    id: str
+    x: float
+    y: float
+    items: list[str] = Field(min_length=1, max_length=6)
+    dir: Literal["down", "right"] = "down"
+    connector: str | None = None  # label on every arrow between items, e.g. "+CH₂"
+    size: Literal["h2", "body", "small"] = "body"
+    color: Color = "ink"
+
+
+Bond = Literal["-", "=", "≡"]
+
+
+class ChainBranch(BaseModel):
+    at: int  # index of the main-chain group it hangs from
+    groups: list[str] = Field(min_length=1, max_length=4)
+    dir: Literal["up", "down"] = "up"
+    bond: Bond = "-"
+
+
+class ChainAction(BaseModel):
+    type: Literal["chain"]
+    id: str
+    x: float  # baseline start of the first group
+    y: float
+    groups: list[str] = Field(min_length=1, max_length=8)  # e.g. ["CH₃", "CH₂", "CH₂", "OH"]
+    bonds: list[Bond] = []  # bond after each group but the last; missing ones are single
+    branches: list[ChainBranch] = []
+    color: Color = "ink"
+
+
+class CurveAction(BaseModel):
+    type: Literal["curve"]
+    id: str
+    points: list[Point] = Field(min_length=2, max_length=40)  # a smooth curve is drawn through them, in order
+    color: Color = "ink"
+    dashed: bool = False
+    label: str | None = None  # placed near the last point, e.g. "y = x²"
+
+
+class Vector(BaseModel):
+    deg: float  # direction, degrees counter-clockwise from +x (90 = up, 270 = down)
+    label: str  # e.g. "v₀", "g", "a"
+    color: Color = "blue"
+
+
+class BodyAction(BaseModel):
+    """Any object in a mechanics problem (ball, stone, packet, car, balloon) with its vectors."""
+
+    type: Literal["body"]
+    id: str
+    x: float  # centre
+    y: float
+    shape: Literal["ball", "box"] = "ball"
+    label: str | None = None
+    vectors: list[Vector] = Field(default=[], max_length=3)
+    color: Color = "ink"
+
+
+class GroundAction(BaseModel):
+    type: Literal["ground"]
+    id: str
+    x: float  # left end of the surface
+    y: float
+    w: float = 400
+    label: str | None = None
+
+
+class RingAction(BaseModel):
+    type: Literal["ring"]
+    id: str
+    cx: float
+    cy: float
+    r: float = 60
+    size: Literal[3, 4, 5, 6] = 6
+    aromatic: bool = False  # benzene: a circle inside the hexagon
+    label: str | None = None
+    color: Color = "ink"
+
+
 DrawAction = Annotated[
     TextAction
     | LineAction
@@ -98,7 +249,19 @@ DrawAction = Annotated[
     | CircleAction
     | AngleAction
     | FieldMarkAction
-    | HighlightAction,
+    | HighlightAction
+    | WireAction
+    | ChargeAction
+    | CompassAction
+    | MagnetAction
+    | AxesAction
+    | RegionAction
+    | FlowAction
+    | ChainAction
+    | RingAction
+    | CurveAction
+    | BodyAction
+    | GroundAction,
     Field(discriminator="type"),
 ]
 _draw_adapter = TypeAdapter(DrawAction)
@@ -267,6 +430,7 @@ class LessonSummaryOut(BaseModel):
     title: str
     scene_count: int
     version: int
+    language: str = "hinglish"
 
 
 class LessonOut(BaseModel):
@@ -276,6 +440,8 @@ class LessonOut(BaseModel):
     # Tutor voice name (null = default) and its gender, for fillers/bridges and UI wording
     voice: str | None = None
     voice_gender: Literal["female", "male"] = "female"
+    # What the tutor speaks ("hinglish" | "english"); the UI's own lines follow it
+    language: str = "hinglish"
     scenes: list[SceneOut]
 
 
@@ -283,6 +449,10 @@ class GuestIn(BaseModel):
     name: str = Field(min_length=1, max_length=60)
     class_level: int | None = Field(default=None, ge=6, le=12)
     language: Literal["hindi", "english", "hinglish"] = "hinglish"
+
+
+class GuestUpdate(BaseModel):
+    language: Literal["hindi", "english", "hinglish"]
 
 
 class GuestOut(BaseModel):

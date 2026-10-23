@@ -6,7 +6,7 @@ import { Button } from '@/components/ui/button'
 import type { Tutor } from '@/engine/tutor'
 import { pressKind, rms, SilenceDetector } from '@/engine/vad'
 import { cn } from '@/lib/utils'
-import { rahi } from '@/lib/voice'
+import { t } from '@/lib/i18n'
 import { usePlayer } from '@/store/player'
 
 // The STT provider accepts at most ~30 s per request
@@ -82,10 +82,10 @@ export function MicButton({ tutor }: { tutor: Tutor }) {
         stream.getTracks().forEach((t) => t.stop())
         const tooShort = Date.now() - startedAt.current < MIN_RECORD_MS
         if (discard.current) {
-          toast('Kuch sunai nahi diya. Mic dabake apna sawal bolo.')
+          toast(t(lesson, 'heardNothing'))
           tutor.cancelQuestion()
         } else if (tooShort) {
-          toast('Thoda lamba bolo, phir mic chhodo.')
+          toast(t(lesson, 'tooShort'))
           tutor.cancelQuestion()
         } else {
           void tutor.submitQuestion(new Blob(chunks, { type: rec.mimeType }))
@@ -98,7 +98,7 @@ export function MicButton({ tutor }: { tutor: Tutor }) {
       timer.current = window.setTimeout(stop, MAX_RECORD_MS)
     } catch {
       pressed.current = false
-      toast.error('Microphone permission chahiye sawal poochne ke liye.')
+      toast.error(t(lesson, 'micPermission'))
       tutor.cancelQuestion()
     }
   }
@@ -177,11 +177,11 @@ export function MicButton({ tutor }: { tutor: Tutor }) {
       <p className="text-muted-foreground text-xs text-center">
         {listening
           ? tapMode
-            ? 'Bolo… chup hone par khud bhej denge'
-            : 'Bolo… chhodne par bhej denge'
+            ? t(lesson, 'speakTap')
+            : t(lesson, 'speakHold')
           : thinking
-            ? `Soch ${rahi(lesson)} hoon…`
-            : 'Tap or hold to ask (or Space)'}
+            ? t(lesson, 'thinking')
+            : t(lesson, 'askHint')}
       </p>
     </div>
   )

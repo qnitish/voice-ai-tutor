@@ -1,22 +1,16 @@
 import { Badge } from '@/components/ui/badge'
-import { rahi } from '@/lib/voice'
+import { type LineKey, t } from '@/lib/i18n'
+import type { Lesson } from '@/lib/types'
 import { type DoubtView, usePlayer } from '@/store/player'
 
-const STATUS: Record<DoubtView['status'], string> = {
-  routing: 'Sun {rahi} hoon…',
-  promised: 'Aage aayega',
-  queued: 'Scene ke baad',
-  answering: 'Abhi',
-  answered: 'Done',
-  dismissed: '—',
-}
+const status = (lesson: Lesson | null, s: DoubtView['status']) => (s === 'dismissed' ? '—' : t(lesson, s satisfies LineKey))
 
 export function DoubtList() {
   const doubts = usePlayer((s) => s.doubts)
   const lesson = usePlayer((s) => s.lesson)
 
   if (!doubts.length) {
-    return <p className="text-muted-foreground text-sm">Koi doubt? Mic button dabake poochho.</p>
+    return <p className="text-muted-foreground text-sm">{t(lesson, 'noDoubts')}</p>
   }
 
   return (
@@ -25,7 +19,7 @@ export function DoubtList() {
         <li key={d.id} className="rounded-lg border bg-card p-3 text-sm">
           <p className="leading-snug">{d.question}</p>
           <div className="mt-2 flex flex-wrap items-center gap-2">
-            <Badge variant={d.status === 'answering' ? 'default' : 'secondary'}>{STATUS[d.status].replace('{rahi}', rahi(lesson))}</Badge>
+            <Badge variant={d.status === 'answering' ? 'default' : 'secondary'}>{status(lesson, d.status)}</Badge>
             {d.status === 'promised' && d.targetSceneIdx !== null && lesson && (
               <span className="text-muted-foreground text-xs">
                 Scene {d.targetSceneIdx + 1}: {lesson.scenes[d.targetSceneIdx]?.title}

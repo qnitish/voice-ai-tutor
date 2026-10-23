@@ -5,6 +5,7 @@ import asyncio
 import httpx
 
 from app.config import settings
+from app.language import STT_CODES, current_stt_language
 from app.voices import current_voice
 
 BASE_URL = "https://api.vachana.ai"
@@ -46,7 +47,7 @@ class GnaniSTT:
             self.client,
             "/stt/v3",
             files={"audio_file": ("audio.wav", wav, "audio/wav")},
-            data={"language_code": settings.gnani_stt_language},
+            data={"language_code": STT_CODES.get(current_stt_language.get() or "", settings.gnani_stt_language)},
         )
         return resp.json().get("transcript", "").strip()
 

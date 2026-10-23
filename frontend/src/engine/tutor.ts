@@ -3,14 +3,15 @@
  * this loop walks scene -> step, pauses for questions, and decides where
  * answers are delivered (right away, end of step, end of scene, or a later scene's start).
  */
-import { boardBefore } from '@/engine/board'
 import { FADE_MS, fadeTo } from '@/engine/fade'
+import { FONT_SIZE, FONT_STACK } from '@/engine/geometry'
+import { layoutScene, layoutStep } from '@/engine/layout'
 import { twinSlot, wrongNext } from '@/engine/remedy'
 import type { Restored } from '@/engine/restore'
 import { resumePoint } from '@/engine/timing'
 import { api, streamAnswer } from '@/lib/api'
+import { t } from '@/lib/i18n'
 import type { CheckQuestion, Clip, DrawAction, Lesson, QuestionResult, Spoken } from '@/lib/types'
-import { rahi } from '@/lib/voice'
 import { type CheckView, initialPlayerState, setPlayer, type TimedAction, updateDoubt, usePlayer } from '@/store/player'
 
 const get = usePlayer.getState
@@ -21,9 +22,21 @@ export function schedule(draw: DrawAction[], durationMs: number): TimedAction[] 
   const span = Math.max(600, durationMs * 0.85)
   const slot = span / draw.length
   return draw.map((action, i) => {
-    const want = action.type === 'text' ? 400 + action.text.length * 45 : 900
+    const chars = action.type === 'text' ? action.text.length : action.type === 'flow' ? action.items.join('').length : 0
+    const want = chars ? 400 + chars * 45 : 900
     return { action, start: i * slot, end: i * slot + Math.min(slot * 0.95, want) }
   })
+}
+
+/** The layout measures text, so the board fonts must be loaded before anything is laid out. */
+async function loadBoardFonts() {
+  try {
+    await Promise.all(
+      Object.values(FONT_SIZE).flatMap((px) => [400, 700].map((w) => document.fonts.load(`${w} ${px}px ${FONT_STACK}`, 'Aa∮∂₂'))),
+    )
+  } catch {
+    // Measuring with a fallback font only makes the layout a little looser
+  }
 }
 
 interface PendingAnswer {
@@ -81,8 +94,9 @@ export class Tutor {
       this.answeredChecks = new Set(restored.answeredChecks)
     }
     ;[this.fillers, this.bridges] = await Promise.all([
-      api.fillers(lesson.voice).catch(() => []),
-      api.bridges(lesson.voice).catch(() => []),
+      api.fillers(lesson.voice, lesson.language).catch(() => []),
+      api.bridges(lesson.voice, lesson.language).catch(() => []),
+      loadBoardFonts(),
     ])
     this.run(from).catch((e) => {
       if (!this.stopped) setPlayer({ error: String(e), mode: 'done' })
@@ -102,12 +116,13 @@ export class Tutor {
     const { sessionId } = get()
     for (const scene of lesson.scenes.slice(from?.sceneIdx ?? 0)) {
       const firstStep = scene.idx === from?.sceneIdx ? from.stepIdx : 0
-      setPlayer({ sceneIdx: scene.idx, stepIdx: firstStep, drawn: boardBefore(scene, firstStep), active: [], layer: 'lesson' })
+      const laid = layoutScene(scene.steps.map((s) => s.draw))
+      setPlayer({ sceneIdx: scene.idx, stepIdx: firstStep, drawn: laid.slice(0, firstStep).flat(), active: [], layer: 'lesson' })
       await this.playCallbacks(scene.idx)
       for (const step of scene.steps.slice(firstStep)) {
         setPlayer({ stepIdx: step.idx })
         api.savePosition(sessionId!, scene.idx, step.idx).catch(() => {})
-        await this.playClip(step)
+        await this.playClip({ ...step, draw: laid[step.idx] }, this.main, true, false)
         await this.deliver('step_end')
       }
       await this.deliver('scene_end')
@@ -121,9 +136,10 @@ export class Tutor {
     await this.finish()
   }
 
-  private async playClip(clip: Clip, el = this.main, gated = true) {
+  /** `layout` = false when the clip's draw actions are already laid out (lesson steps). */
+  private async playClip(clip: Clip, el = this.main, gated = true, layout = true) {
     if (gated) await this.gate()
-    const timeline = schedule(clip.draw, clip.duration_ms)
+    const timeline = schedule(layout ? layoutStep(clip.draw, get().drawn) : clip.draw, clip.duration_ms)
     if (el === this.main) this.clip = clip
     this.clipCaption = clip.say
     setPlayer({ active: timeline, clipTime: 0, caption: clip.say })
@@ -277,7 +293,7 @@ export class Tutor {
       else if (res.answer_when === 'now' && this.phase === 'lesson') await this.interject(res.doubt_id)
     } catch (e) {
       console.error(e)
-      setPlayer((s) => ({ doubts: s.doubts.filter((d) => d.id !== tempId), error: 'Sawal bhejne mein dikkat hui. Phir se try karo.' }))
+      setPlayer((s) => ({ doubts: s.doubts.filter((d) => d.id !== tempId), error: t(get().lesson, 'questionFailed') }))
     } finally {
       setPlayer({ caption: this.clipCaption })
       this.micHold = false
@@ -475,7 +491,7 @@ export class Tutor {
     } catch (e) {
       console.error(e)
       this.patchCheck({ busy: false })
-      setPlayer({ error: 'Jawab bhejne mein dikkat hui. Phir se try karo.' })
+      setPlayer({ error: t(get().lesson, 'answerFailed') })
       return
     }
     if (kind === 'first') this.answeredChecks.add(check.sceneIdx)
@@ -529,7 +545,7 @@ export class Tutor {
   private async finish() {
     this.phase = 'summary'
     this.syncMode()
-    setPlayer({ layer: 'doubt', drawn: [], active: [], caption: `Aaj ka summary bana ${rahi(get().lesson)} hoon…` })
+    setPlayer({ layer: 'doubt', drawn: [], active: [], caption: t(get().lesson, 'makingSummary') })
     const summary = await api.summary(get().sessionId!)
     setPlayer({ summary, caption: summary.speech.text })
     await this.playAudio(this.main, summary.speech.audio_url)

@@ -20,12 +20,15 @@ const http = axios.create({ baseURL: '/api' })
 export const api = {
   listLessons: () => http.get<LessonSummary[]>('/lessons').then((r) => r.data),
   getLesson: (slug: string) => http.get<Lesson>(`/lessons/${slug}`).then((r) => r.data),
-  fillers: (voice: string | null) => http.get<Spoken[]>('/fillers', { params: { voice } }).then((r) => r.data),
-  bridges: (voice: string | null) => http.get<Spoken[]>('/bridges', { params: { voice } }).then((r) => r.data),
+  fillers: (voice: string | null, language: string) =>
+    http.get<Spoken[]>('/fillers', { params: { voice, language } }).then((r) => r.data),
+  bridges: (voice: string | null, language: string) =>
+    http.get<Spoken[]>('/bridges', { params: { voice, language } }).then((r) => r.data),
 
   createGuest: (body: { name: string; class_level: number | null; language: string }) =>
     http.post<Guest>('/guests', body).then((r) => r.data),
   getGuest: (id: string) => http.get<Guest>(`/guests/${id}`).then((r) => r.data),
+  setLanguage: (id: string, language: string) => http.patch<Guest>(`/guests/${id}`, { language }).then((r) => r.data),
   createSession: (guest_id: string, lesson_slug: string) =>
     http.post<TutorSession>('/sessions', { guest_id, lesson_slug }).then((r) => r.data),
   progress: (guestId: string) => http.get<LessonProgress[]>(`/guests/${guestId}/progress`).then((r) => r.data),

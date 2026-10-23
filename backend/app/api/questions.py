@@ -14,6 +14,7 @@ from app.api.sessions import callback_path, callback_spoken, get_session, touch,
 from app.audio import STT_RATE, speak, speak_cached, to_wav
 from app.config import settings
 from app.db import CheckAttempt, CheckResult, Doubt, Lesson, SessionLocal, TutorSession, get_db
+from app.language import current_stt_language
 from app.progress import doubt_mastery
 from app.prompts import ANSWER_SYSTEM, CLASSIFY_SYSTEM, FIXED_ACKS, clarify_ack, for_gender, line_for
 from app.providers import get_stt
@@ -130,7 +131,7 @@ async def classify(
         return Classification(intent="unclear", question=""), False
     on_screen = check_on_screen(db, sess, scene_idx) if during_check else ""
     user = routing_prompt(sess.lesson, scene_idx, step_idx, earlier, transcript, on_screen)
-    system = for_gender(CLASSIFY_SYSTEM, get_voice(sess.lesson.voice).gender)
+    system = for_gender(CLASSIFY_SYSTEM, get_voice(sess.lesson.voice).gender, sess.lesson.language)
     cls = await llm.complete_json(system, user, Classification, temperature=0.2, model=settings.routing_deployment)
     return cls, cls.confidence < CLARIFY_BELOW and cls.intent in CLARIFIABLE
 
@@ -151,7 +152,12 @@ async def ask_question(
     wav, duration_ms = await asyncio.to_thread(to_wav, await audio.read(), STT_RATE)
     if duration_ms > stt.max_seconds * 1000:
         raise HTTPException(400, f"Recording longer than {stt.max_seconds}s")
-    transcript = await stt.transcribe(wav) if duration_ms > 300 else ""
+    # The student is expected to speak the lesson's language
+    token = current_stt_language.set(lesson.language)
+    try:
+        transcript = await stt.transcribe(wav) if duration_ms > 300 else ""
+    finally:
+        current_stt_language.reset(token)
 
     cls, needs_clarify = await classify(db, sess, scene_idx, step_idx, transcript, during_check)
     pending = None
@@ -183,11 +189,11 @@ async def ask_question(
 
     voice = lesson.voice
     if cls.intent == "clarify":
-        ack_spoken = await speak(clarify_ack(doubt.question), f"doubts/{doubt.id}_ack.wav", voice)
+        ack_spoken = await speak(clarify_ack(doubt.question, lesson.language), f"doubts/{doubt.id}_ack.wav", voice)
     elif cls.intent == "off_topic" and cls.ack:
         ack_spoken = await speak(cls.ack, f"doubts/{doubt.id}_ack.wav", voice)
     else:
-        ack_spoken = await speak_cached(line_for(FIXED_ACKS[cls.intent], get_voice(voice).gender), voice)
+        ack_spoken = await speak_cached(line_for(FIXED_ACKS[cls.intent], get_voice(voice).gender, lesson.language), voice)
 
     callback = None
     if cls.callback:
@@ -271,7 +277,7 @@ async def stream_answer(doubt_id: str):
         cached = doubt.answer
         sess = db.get(TutorSession, doubt.session_id)
         voice = sess.lesson.voice
-        system = for_gender(ANSWER_SYSTEM, get_voice(voice).gender)
+        system = for_gender(ANSWER_SYSTEM, get_voice(voice).gender, sess.lesson.language)
         prompt = None if cached else answer_prompt(db, doubt, sess)
 
     async def generate():

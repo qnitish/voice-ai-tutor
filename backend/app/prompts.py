@@ -10,11 +10,34 @@ Rules for every "say" field (it is sent straight to a text-to-speech voice):
   Write maths as words: "mu naught by four pi", "r square", "sin theta", "d B", "I d l".
   Write numbers as words ("das", "ninety degree")."""
 
+# Replaces SPEECH_RULES in every prompt of an English lesson
+SPEECH_RULES_EN = """\
+Rules for every "say" field (it is sent straight to a text-to-speech voice):
+- Simple, clear Indian English, like a friendly teacher talking to a school student. Never write Hindi or Devanagari,
+  even when the source transcript is in Hindi.
+- 1-2 short sentences, at most about 30 words.
+- Must be speakable: no symbols, no formulas written with symbols, no abbreviations, no emojis.
+  Write maths as words: "mu naught by four pi", "r squared", "sin theta", "d B", "I d l".
+  Write numbers as words ("ten", "ninety degrees")."""
+
+# Appended to every prompt of an English lesson: the prompts quote Hinglish phrases, these are their English forms
+ENGLISH_NOTE = """\
+LANGUAGE: this lesson is taught in English. Everything the student hears or reads (say, question, options,
+explanation, hints, ack, callback, the rewritten question, summary lines, revision points, board text) is in simple
+Indian English, even if the lecture transcript is in Hindi, and although the instructions above quote Hinglish phrases.
+Use these English forms of the quoted phrases: "Ab dekhte hain ..." = "Now let's see ..."; "yeh hum aage padhenge" =
+"we will study this later"; "ab isi ko hum yahan use kar rahe hain" = "this is exactly what we are using here";
+"Haan" / "Nahi" = "Yes" / "No"; "Chalo, isko seedhe shabdon mein dekhte hain" = "Let's look at this in simpler words";
+"Tumne pucha tha ki ..." = "You asked earlier ..." and "chalo ab yahi dekhte hain." = "let's look at that now.";
+"Lagta hai tumne socha ki ..." = "It looks like you thought ..."; "Ek baar phir socho." = "Think about it once more.";
+"Chalo, pichle concept pe ek aur sawal." = "Let's try one more question on the last concept."
+The student may still speak Hindi or Hinglish; understand it, but reply in English."""
+
 DRAW_SPEC = """\
 Whiteboard: 1600 wide x 900 tall, origin at the top-left, units are pixels. Draw actions (JSON objects):
 - {"type":"text","id":"t1","x":60,"y":90,"text":"...","size":"h1|h2|body|small","color":"ink"}
-  x,y is the left end of the text baseline. Approx character width: h1 30px, h2 22px, body 17px, small 13px.
-  Line height: h1 70, h2 52, body 42, small 30. Keep each text item under 40 characters; split longer lines.
+  x,y is the left end of the text baseline. Line height: h1 70, h2 52, body 42, small 30.
+  Keep each text item under 40 characters; split longer lines.
 - {"type":"line","id":"l1","start":[x,y],"end":[x,y],"color":"ink","dashed":false}
 - {"type":"arrow","id":"a1","start":[x,y],"end":[x,y],"color":"blue","label":"I"}   (label is drawn near the middle; may be null)
 - {"type":"rect","id":"r1","x":0,"y":0,"w":0,"h":0,"color":"ink","label":null}   (label is centred inside)
@@ -23,15 +46,55 @@ Whiteboard: 1600 wide x 900 tall, origin at the top-left, units are pixels. Draw
   Arc marking an angle at vertex (cx,cy). Degrees are counter-clockwise from the +x direction, as in maths (0 = right, 90 = up).
 - {"type":"field_mark","id":"f1","x":0,"y":0,"dir":"in|out","color":"blue"}   (⊗ into the page / ⊙ out of the page)
 - {"type":"highlight","id":"h1","target":"t3","color":"orange"}   (highlighter around an earlier item of the same board)
+Blocks: ready-made diagram parts drawn with correct proportions and symbols. Prefer them over building the same
+thing from lines and circles. Angles are degrees counter-clockwise from +x (0 = right, 90 = up).
+- {"type":"wire","id":"w1","start":[x,y],"end":[x,y],"current":"I","color":"ink"}   (thick wire; "current" puts a
+  labelled current arrow on it pointing start → end; null for no current)
+- {"type":"charge","id":"q1","x":0,"y":0,"sign":"+","label":"q","velocity_deg":0,"force_deg":90,"color":"blue"}
+  (a point charge; velocity_deg / force_deg draw a labelled "v" (blue) / "F" (red) arrow of length 110 from it; null = none.
+  A charge at rest has velocity_deg null.)
+- {"type":"compass","id":"k1","x":0,"y":0,"needle_deg":90,"label":"compass"}   (radius 42; red end = north)
+- {"type":"magnet","id":"m1","x":0,"y":0,"w":240,"h":70,"north":"left"}   (bar magnet with N and S halves; x,y = top-left)
+- {"type":"axes","id":"x1","x":0,"y":0,"w":400,"h":300,"x_label":"x","y_label":"y","color":"ink"}   (x,y = origin)
+- {"type":"region","id":"r1","cx":0,"cy":0,"w":360,"h":260,"shape":"ellipse|rect","label":"R","curve_label":"C",
+  "orientation":"ccw|cw|null","color":"ink"}   (a shaded region with its boundary curve; orientation draws its direction)
+- {"type":"flow","id":"s1","x":0,"y":0,"items":["CH₄","C₂H₆","C₃H₈"],"dir":"down|right","connector":"+CH₂",
+  "size":"body","color":"ink"}   (a list of items joined by arrows, e.g. a series or the steps of a process;
+  x,y = baseline start of the first item; down: about 100px per item at body size)
+- {"type":"chain","id":"m1","x":0,"y":0,"groups":["CH₃","CH","CH₂","OH"],"bonds":["-","-","-"],
+  "branches":[{"at":1,"groups":["CH₃"],"dir":"up","bond":"-"}],"color":"ink"}   (a structural formula: groups in a row
+  joined by bonds "-", "=" or "≡" (bonds[i] joins groups i and i+1), branches hang up/down from group "at", 80px per
+  row; x,y = baseline start of the first group; about 14px per character plus 46px per bond)
+- {"type":"ring","id":"b1","cx":0,"cy":0,"r":60,"size":6,"aromatic":true,"label":"benzene","color":"ink"}
+  (a ring of 3-6 atoms; aromatic draws benzene's inner circle)
+- {"type":"body","id":"o1","x":0,"y":0,"shape":"ball|box","label":"packet",
+  "vectors":[{"deg":90,"label":"v₀","color":"blue"},{"deg":270,"label":"g","color":"red"}],"color":"ink"}
+  (any object in a mechanics problem: ball, stone, packet, car, balloon, particle; up to 3 labelled vectors of length
+  110 drawn from it, e.g. velocity, acceleration, gravity)
+- {"type":"ground","id":"gr1","x":0,"y":0,"w":400,"label":null}   (a hatched floor/ground line; x,y = left end)
+- {"type":"curve","id":"g1","points":[[x,y],[x,y],...],"color":"blue","dashed":false,"label":"y = x²"}
+  (a smooth curve through 5-15 points in board pixels, e.g. a graph on axes: compute the points from the equation and
+  the axes' scale; label goes near the last point)
+Use a block only for what it is named for: charge is only an electric charge and magnet only a magnet; every other
+object (a ball, a packet, a balloon) is a body. A wire is an electric wire, never a chemical bond; draw bonds and molecules
+with chain or ring. Never use angle, region or circle to stand for something else (a bond, a molecule, a ring).
+Never draw on top of an item already on the board: to show a change (current reversed, a new value), draw a new
+item beside the old one or write it as text. Draw each object once and give it one label.
 Colors: ink, blue, red, green, orange.
-Board text may use Unicode maths: μ₀, θ, π, ×, ·, ², ³, ∫, →, ⊥, ≈, dB, dl. Keep formulas short.
-Layout: each board starts blank. Put the title (h1) at x=60, y=90. Use the left column (x 60-760) for text and formulas
-and the right column (x 860-1540) for the diagram. Keep everything inside the board and never overlap items.
+Symbols: use the right mark for the right thing. Every vector (force, velocity, current, field direction) is an arrow
+or block arrow with its symbol as label (F, v, I, B), never a bare line. ⊙/⊗ (field_mark) only for a field out of /
+into the page. Board text may use Unicode maths: μ₀, θ, π, ×, ·, ², ³, ₂, ∫, ∮, ∬, ∂, →, ⊥, ≈. Keep formulas short and
+write them exactly as the lecture does (check brackets: "x(1 + cos y)" is not "x + cos y").
+Approx character width: h1 25px, h2 18px, body 14px, small 10px. Labels are short: a symbol or 1-2 words.
+Layout: each board starts blank. Put the title (h1) at x=60, y=90. Use the left column (x 60-760) for text and formulas,
+one item per line at the line heights above, and the right column (x 860-1540) for the diagram; never put text in the
+right column except inside blocks and labels. Leave at least 30px between diagram parts, never draw a line or arrow
+through text, and keep everything inside the board. Labels are placed automatically next to their item.
 Plan the whole layout before writing. ids must be unique on the board."""
 
 OUTLINE_SYSTEM = f"""\
 You are an expert Indian physics and maths teacher turning a recorded lecture into a short whiteboard lesson.
-The input is a speech-to-text transcript in Hindi (Devanagari). It has recognition errors and includes chatter
+The input is a speech-to-text transcript in Hindi (Devanagari) or English. It has recognition errors and includes chatter
 (greetings, channel promotion, admin talk); ignore those and keep only the teaching.
 
 Plan 4 to 6 scenes that follow the lecture's teaching order. Each scene teaches one idea and will become
@@ -134,7 +197,7 @@ Then write 3 or 4 spoken lines. Each is ONE short spoken sentence plus at most 3
 spoken as soon as it is written. Example of the shape:
 {{"source": "Teacher: current badhne par magnetic field badhti hai (B is proportional to I)."}}
 {{"say": "Haan, current badhega toh magnetic field bhi badhegi.", "draw": [{{"type":"text","id":"t1","x":60,"y":80,"text":"Current ↑ → B ↑","size":"h2","color":"ink"}}]}}
-{{"say": "Dekho, yeh wire hai aur iske paas compass rakha hai.", "draw": [{{"type":"line","id":"l1","start":[900,250],"end":[900,650],"color":"ink","dashed":false}}, {{"type":"circle","id":"c1","cx":1100,"cy":450,"r":45,"color":"blue","filled":false,"label":"compass"}}]}}
+{{"say": "Dekho, yeh wire hai aur iske paas compass rakha hai.", "draw": [{{"type":"wire","id":"w1","start":[950,700],"end":[950,200],"current":"I","color":"ink"}}, {{"type":"compass","id":"k1","x":1150,"y":450,"needle_deg":90,"label":"compass"}}]}}
 {{"say": "Batao, agar current zero kar dein toh needle ka kya hoga?", "draw": [{{"type":"text","id":"t2","x":60,"y":200,"text":"I = 0 → ?","size":"body","color":"red"}}]}}
 The first line writes a short heading for the doubt (size h2, at x=60, y=80).
 The last line checks understanding with a small question back to the student.
@@ -241,15 +304,19 @@ MALE_LINES = {
 }
 
 
-def for_gender(system: str, gender: str) -> str:
-    """A system prompt for the lesson's voice."""
+def for_gender(system: str, gender: str, language: str = "hinglish") -> str:
+    """A system prompt for the lesson's voice and language."""
+    if language == "english":
+        system = system.replace(SPEECH_RULES, SPEECH_RULES_EN) + "\n\n" + ENGLISH_NOTE
     if gender == "female":
         return system
     return system.replace(FEMALE_RULE, MALE_RULE).replace("what she draws", "what he draws")
 
 
-def line_for(text: str, gender: str) -> str:
-    """A fixed spoken line for the lesson's voice."""
+def line_for(text: str, gender: str, language: str = "hinglish") -> str:
+    """A fixed spoken line for the lesson's voice and language (`text` is its Hinglish, female form)."""
+    if language == "english":
+        return ENGLISH_LINES.get(text, text)
     return MALE_LINES.get(text, text) if gender == "male" else text
 
 
@@ -262,8 +329,11 @@ CHECK_LINES = {
 }
 
 
-def reveal_line(correct_index: int) -> str:
-    return f"Hmm, yeh sahi nahi hai. Sahi jawab option {'ABCD'[correct_index]} hai."
+def reveal_line(correct_index: int, language: str = "hinglish") -> str:
+    letter = "ABCD"[correct_index]
+    if language == "english":
+        return f"Hmm, that's not right. The correct answer is option {letter}."
+    return f"Hmm, yeh sahi nahi hai. Sahi jawab option {letter} hai."
 
 
 # Played after the re-teach, while the mic is open for "where did it go wrong"
@@ -283,9 +353,11 @@ FIXED_ACKS = {
 }
 
 
-def clarify_ack(question: str) -> str:
+def clarify_ack(question: str, language: str = "hinglish") -> str:
     """Asked back when routing is unsure; the student confirms with a short "haan"."""
     mark = "" if question.endswith("?") else "?"
+    if language == "english":
+        return f"Are you asking: {question}{mark} If yes, press the mic and say yes."
     return f"Kya tum yeh pooch rahe ho: {question}{mark} Agar haan, toh mic dabake haan bolo."
 
 
@@ -295,3 +367,35 @@ BRIDGES = [
     "Theek hai, ab aage badhte hain.",
     "Accha, toh hum yahan the.",
 ]
+
+# Played while a doubt is being routed (synthesized per voice and language by prep)
+FILLERS = [
+    "Accha sawal!",
+    "Hmm, interesting sawal hai.",
+    "Ek second, sochne do.",
+    "Haan, bolo, main sun rahi hoon.",
+]
+
+# English form of every fixed line above, keyed by its Hinglish (female) text
+ENGLISH_LINES = {
+    CHECK_LINES["correct"]: "Absolutely right! Well done.",
+    CHECK_LINES["wrong_try_again"]: "Hmm, that's not right.",
+    CHECK_LINES["retry_correct"]: "Yes, now that's right! Good thinking.",
+    CHECK_LINES["twin_correct"]: "Absolutely right! Now this concept is clear.",
+    CHECK_FOLLOWUP: "Tell me, which part confused you? Press the mic and speak, or let's move on.",
+    FIXED_ACKS["covered_later"]: "Great question! We'll see this in detail in a little while. Let's finish this point first.",
+    FIXED_ACKS["not_covered"]: "Good question! I'll answer it once we finish this point.",
+    FIXED_ACKS["prerequisite"]: "Okay, let's first understand the basics of this.",
+    FIXED_ACKS["confused"]: "No problem, let me explain it another way.",
+    FIXED_ACKS["repeat"]: "Sure, let me repeat that part.",
+    FIXED_ACKS["unclear"]: "Sorry, I couldn't hear you properly. Could you say that again?",
+    FIXED_ACKS["off_topic"]: "Hmm, let's continue with our lesson first.",
+    FIXED_ACKS["continue"]: "Okay, let's move on.",
+    BRIDGES[0]: "Okay, let's get back to the lesson.",
+    BRIDGES[1]: "Alright, let's move ahead.",
+    BRIDGES[2]: "So, this is where we were.",
+    FILLERS[0]: "Good question!",
+    FILLERS[1]: "Hmm, that's an interesting question.",
+    FILLERS[2]: "One second, let me think.",
+    FILLERS[3]: "Yes, go ahead, I'm listening.",
+}

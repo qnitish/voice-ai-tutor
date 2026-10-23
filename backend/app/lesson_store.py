@@ -8,14 +8,20 @@ from app.quiz import shuffle_checks
 
 
 def publish_lesson(
-    db: Session, slug: str, title: str, transcript: str, scenes: list[dict], voice: str | None = None
+    db: Session,
+    slug: str,
+    title: str,
+    transcript: str,
+    scenes: list[dict],
+    voice: str | None = None,
+    language: str = "hinglish",
 ) -> Lesson:
     """Add a new version of the lesson; earlier versions and their sessions are kept. Caller commits."""
     latest = db.scalar(select(func.max(Lesson.version)).filter_by(slug=slug)) or 0
     checks = shuffle_checks([s["check_question"] for s in scenes], seed=slug)
     twins = shuffle_checks([(c or {}).get("twin") for c in checks], seed=f"{slug}:twin")
     checks = [{**c, "twin": t} if c and t else c for c, t in zip(checks, twins)]
-    lesson = Lesson(slug=slug, version=latest + 1, title=title, transcript=transcript, voice=voice)
+    lesson = Lesson(slug=slug, version=latest + 1, title=title, transcript=transcript, voice=voice, language=language)
     for si, (scene, check) in enumerate(zip(scenes, checks)):
         lesson.scenes.append(
             Scene(

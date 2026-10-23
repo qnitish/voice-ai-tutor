@@ -1,10 +1,14 @@
 """Offline lesson prep: lecture audio -> transcript -> scenes -> narration audio -> remediation -> Postgres.
 
-    python -m app.prep <audio-file> --slug biot-savart [--start-min 0] [--minutes 10] [--redo STAGE] [--voice NAME]
+    python -m app.prep <audio-or-video-file> --slug biot-savart [--start-min 0] [--minutes 10] [--redo STAGE] [--voice NAME]
+        [--language hinglish|english] [--lecture-language hindi|english] [--share-from SLUG]
 
 Each stage caches its output in data/lessons/<slug>/ and is skipped when rerun;
 --redo STAGE deletes that stage's cache and every later one. --voice uses a voice from app.voices (e.g. a clone)
 for everything spoken in the lesson; changing it needs --redo scenes, since the narration's verbs follow its gender.
+--language is what the tutor speaks; --lecture-language is what the recording is in (picks the STT language).
+--share-from copies another slug's transcript and outline (e.g. the same lecture in the other language), so both
+versions teach the same scenes and the lecture is transcribed once.
 """
 
 import argparse
@@ -23,6 +27,7 @@ from app.prompts import (
     BRIDGES,
     CHECK_FOLLOWUP,
     CHECK_LINES,
+    FILLERS,
     FIXED_ACKS,
     OUTLINE_SYSTEM,
     REMEDY_REVIEW_SYSTEM,
@@ -32,6 +37,7 @@ from app.prompts import (
     for_gender,
     line_for,
 )
+from app.language import current_stt_language
 from app.providers import get_stt
 from app.schemas import (
     CheckReview,
@@ -48,14 +54,6 @@ from app.voices import fillers_dir, get_voice
 log = logging.getLogger("prep")
 
 STAGES = ["transcript", "outline", "scenes", "review", "audio", "remedy"]
-FILLERS = [
-    "Accha sawal!",
-    "Hmm, interesting sawal hai.",
-    "Ek second, sochne do.",
-    "Haan, bolo, main sun rahi hoon.",
-]
-
-
 async def bounded(sem: asyncio.Semaphore, coro):
     async with sem:
         return await coro
@@ -76,7 +74,12 @@ async def make_transcript(audio: Path, start_min: float, minutes: float) -> str:
 
 
 async def make_scene(
-    outline: Outline, idx: int, transcript: str, earlier: list[SceneDraft], voice: str | None = None
+    outline: Outline,
+    idx: int,
+    transcript: str,
+    earlier: list[SceneDraft],
+    voice: str | None = None,
+    language: str = "hinglish",
 ) -> SceneDraft:
     taught = "\n".join(
         f"Scene {i}: " + " ".join(s.say for s in scene.steps) for i, scene in enumerate(earlier)
@@ -87,7 +90,7 @@ async def make_scene(
         f"Write scene index {idx}: {outline.scenes[idx].model_dump_json()}\n\n"
         f"Lecture transcript:\n{transcript}"
     )
-    draft = await llm.prep_json(for_gender(SCENE_SYSTEM, get_voice(voice).gender), user, SceneDraft)
+    draft = await llm.prep_json(for_gender(SCENE_SYSTEM, get_voice(voice).gender, language), user, SceneDraft)
     for step in draft.steps:
         step.draw = clean_draw(step.draw)
     return draft
@@ -101,7 +104,9 @@ def check_text(q) -> str:
     )
 
 
-async def review_scene(meta: OutlineScene, scene: SceneDraft, transcript: str, voice: str | None = None) -> dict:
+async def review_scene(
+    meta: OutlineScene, scene: SceneDraft, transcript: str, voice: str | None = None, language: str = "hinglish"
+) -> dict:
     """Fact-check one scene against the lecture before it is narrated; returns the (corrected) check question."""
     user = (
         f"Scene: {meta.title}\nGoal: {meta.goal}\n"
@@ -110,7 +115,7 @@ async def review_scene(meta: OutlineScene, scene: SceneDraft, transcript: str, v
         f"Check question as JSON: {scene.check_question.model_dump_json()}\n\n"
         f"Lecture transcript:\n{transcript}"
     )
-    review = await llm.prep_json(for_gender(REVIEW_SYSTEM, get_voice(voice).gender), user, CheckReview)
+    review = await llm.prep_json(for_gender(REVIEW_SYSTEM, get_voice(voice).gender, language), user, CheckReview)
     for issue in review.issues + review.narration_issues:
         log.warning("review %s: %s", meta.title, issue)
     return review.model_dump()
@@ -159,7 +164,7 @@ def merge_review(draft: RemedyDraft, reviewed: RemedyDraft, title: str) -> Remed
 
 
 async def make_remedy(
-    meta: OutlineScene, scene: SceneDraft, voice: str | None = None, transcript: str = ""
+    meta: OutlineScene, scene: SceneDraft, voice: str | None = None, transcript: str = "", language: str = "hinglish"
 ) -> RemedyDraft:
     """Hints per wrong option, a re-teach and a twin question for one scene's check question, then reviewed."""
     q = scene.check_question
@@ -169,9 +174,9 @@ async def make_remedy(
         f"Narration: {' '.join(s.say for s in scene.steps)}\n\n{check_text(q)}\n\n"
         f"Lecture transcript:\n{transcript or '(not given)'}"
     )
-    draft = await llm.prep_json(for_gender(REMEDY_SYSTEM, gender), context, RemedyDraft)
+    draft = await llm.prep_json(for_gender(REMEDY_SYSTEM, gender, language), context, RemedyDraft)
     review = await llm.prep_json(
-        for_gender(REMEDY_REVIEW_SYSTEM, gender), f"{context}\n\nHelp to review:\n{draft.model_dump_json()}", RemedyReview
+        for_gender(REMEDY_REVIEW_SYSTEM, gender, language), f"{context}\n\nHelp to review:\n{draft.model_dump_json()}", RemedyReview
     )
     for issue in review.issues:
         log.warning("remedy review %s: %s", meta.title, issue)
@@ -186,12 +191,17 @@ async def make_remedy(
 
 
 async def remediate(
-    slug: str, outline: Outline, scenes: list[SceneDraft], voice: str | None = None, transcript: str = ""
+    slug: str,
+    outline: Outline,
+    scenes: list[SceneDraft],
+    voice: str | None = None,
+    transcript: str = "",
+    language: str = "hinglish",
 ) -> list[dict]:
     """Write and narrate the wrong-answer help of every scene; merged into its check question on publish."""
     sem = asyncio.Semaphore(4)
     drafts = await asyncio.gather(
-        *(bounded(sem, make_remedy(m, s, voice, transcript)) for m, s in zip(outline.scenes, scenes))
+        *(bounded(sem, make_remedy(m, s, voice, transcript, language)) for m, s in zip(outline.scenes, scenes))
     )
 
     async def scene_audio(si: int, d: RemedyDraft) -> dict:
@@ -212,18 +222,18 @@ async def remediate(
                 {**s.model_dump(), "audio_url": a.audio_url, "duration_ms": a.duration_ms} for s, a in zip(d.reteach, reteach)
             ],
             "twin": {**d.twin.model_dump(), "audio_url": twin.audio_url},
-            "followup": (await speak_cached(CHECK_FOLLOWUP, voice)).model_dump(),
+            "followup": (await speak_cached(line_for(CHECK_FOLLOWUP, get_voice(voice).gender, language), voice)).model_dump(),
         }
 
     return list(await asyncio.gather(*(scene_audio(i, d) for i, d in enumerate(drafts))))
 
 
-async def make_fillers(voice: str | None = None) -> None:
+async def make_fillers(voice: str | None = None, language: str = "hinglish") -> None:
     """Pre-generate the lines played instantly during live questions and after answers."""
     gender = get_voice(voice).gender
     for text in [*FIXED_ACKS.values(), *CHECK_LINES.values(), CHECK_FOLLOWUP]:
-        await speak_cached(line_for(text, gender), voice)
-    folder = fillers_dir(voice)
+        await speak_cached(line_for(text, gender, language), voice)
+    folder = fillers_dir(voice, language)
     folder.mkdir(parents=True, exist_ok=True)
     rel = folder.relative_to(settings.media_dir).as_posix()
     for name, lines in (("fillers", FILLERS), ("bridges", BRIDGES)):
@@ -231,13 +241,19 @@ async def make_fillers(voice: str | None = None) -> None:
         if manifest.exists():
             continue
         spoken = await asyncio.gather(
-            *(speak(line_for(t, gender), f"{rel}/{name}_{i}.wav", voice) for i, t in enumerate(lines))
+            *(speak(line_for(t, gender, language), f"{rel}/{name}_{i}.wav", voice) for i, t in enumerate(lines))
         )
         manifest.write_text(json.dumps([s.model_dump() for s in spoken], ensure_ascii=False, indent=1))
 
 
 def load_db(
-    slug: str, outline: Outline, transcript: str, scenes: list[dict], remedies: list[dict], voice: str | None = None
+    slug: str,
+    outline: Outline,
+    transcript: str,
+    scenes: list[dict],
+    remedies: list[dict],
+    voice: str | None = None,
+    language: str = "hinglish",
 ) -> int:
     """Publish as a new lesson version; returns the version number."""
     migrate()
@@ -252,13 +268,20 @@ def load_db(
         for meta, scene, remedy in zip(outline.scenes, scenes, remedies)
     ]
     with SessionLocal.begin() as db:
-        return publish_lesson(db, slug, outline.title, transcript, rows, voice).version
+        return publish_lesson(db, slug, outline.title, transcript, rows, voice, language).version
 
 
 async def run(args: argparse.Namespace) -> None:
     out = settings.lessons_dir / args.slug
     out.mkdir(parents=True, exist_ok=True)
     files = {s: out / f"{s}.json" for s in STAGES}
+    if args.share_from:
+        for stage in ("transcript", "outline"):
+            src = settings.lessons_dir / args.share_from / f"{stage}.json"
+            if not src.exists():
+                raise SystemExit(f"--share-from: {src} not found; prepare {args.share_from} first")
+            if not files[stage].exists():
+                files[stage].write_text(src.read_text())
     if args.redo:
         for stage in STAGES[STAGES.index(args.redo) :]:
             files[stage].unlink(missing_ok=True)
@@ -277,6 +300,7 @@ async def run(args: argparse.Namespace) -> None:
         files[stage].write_text(json.dumps(value, ensure_ascii=False, indent=1))
         return value
 
+    current_stt_language.set(args.lecture_language)
     transcript = await cached(
         "transcript", lambda: make_transcript(Path(args.audio), args.start_min, args.minutes)
     )
@@ -290,7 +314,7 @@ async def run(args: argparse.Namespace) -> None:
         # Sequential, so each scene knows what earlier scenes already taught
         drafts: list[SceneDraft] = []
         for i in range(len(outline.scenes)):
-            drafts.append(await make_scene(outline, i, transcript, drafts, args.voice))
+            drafts.append(await make_scene(outline, i, transcript, drafts, args.voice, args.language))
         return [d.model_dump() for d in drafts]
 
     drafts = [SceneDraft.model_validate(d) for d in await cached("scenes", scenes_json)]
@@ -299,7 +323,7 @@ async def run(args: argparse.Namespace) -> None:
         sem = asyncio.Semaphore(4)
         return list(
             await asyncio.gather(
-                *(bounded(sem, review_scene(m, d, transcript, args.voice)) for m, d in zip(outline.scenes, drafts))
+                *(bounded(sem, review_scene(m, d, transcript, args.voice, args.language)) for m, d in zip(outline.scenes, drafts))
             )
         )
 
@@ -308,9 +332,9 @@ async def run(args: argparse.Namespace) -> None:
     drafts = [d.model_copy(update={"check_question": CheckReview.model_validate(r).check_question}) for d, r in zip(drafts, reviews)]
     flagged = [(m.title, i) for m, r in zip(outline.scenes, reviews) for i in r["narration_issues"]]
     scenes = await cached("audio", lambda: narrate(args.slug, drafts, args.voice))
-    remedies = await cached("remedy", lambda: remediate(args.slug, outline, drafts, args.voice, transcript))
-    await make_fillers(args.voice)
-    version = load_db(args.slug, outline, transcript, scenes, remedies, args.voice)
+    remedies = await cached("remedy", lambda: remediate(args.slug, outline, drafts, args.voice, transcript, args.language))
+    await make_fillers(args.voice, args.language)
+    version = load_db(args.slug, outline, transcript, scenes, remedies, args.voice, args.language)
     steps = sum(len(s["steps"]) for s in scenes)
     log.info(
         "published lesson '%s' (%s v%d): %d scenes, %d steps", outline.title, args.slug, version, len(scenes), steps
@@ -330,6 +354,11 @@ def main() -> None:
     parser.add_argument("--minutes", type=float, default=10)
     parser.add_argument("--redo", choices=STAGES)
     parser.add_argument("--voice", help="voice name from data/voices/ (default: the configured stock voice)")
+    parser.add_argument("--language", choices=["hinglish", "english"], default="hinglish", help="what the tutor speaks")
+    parser.add_argument(
+        "--lecture-language", choices=["hindi", "english"], default="hindi", help="language of the recording (for STT)"
+    )
+    parser.add_argument("--share-from", help="reuse this slug's transcript and outline")
     logging.basicConfig(level=logging.INFO, format="%(asctime)s %(name)s %(message)s")
     logging.getLogger("httpx").setLevel(logging.WARNING)
     asyncio.run(run(parser.parse_args()))

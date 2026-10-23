@@ -10,12 +10,13 @@ from app.db import CheckAttempt, CheckResult, ConceptMastery, Doubt, Guest, Less
 from app.lesson_store import latest_lesson
 from app.voices import get_voice
 from app.progress import WEAK_BELOW, next_mastery, retry_mastery
-from app.prompts import CHECK_LINES, SUMMARY_SYSTEM, for_gender, reveal_line
+from app.prompts import CHECK_LINES, SUMMARY_SYSTEM, for_gender, line_for, reveal_line
 from app.schemas import (
     CheckIn,
     CheckOut,
     GuestIn,
     GuestOut,
+    GuestUpdate,
     HistoryDoubt,
     HistoryOut,
     MasteryOut,
@@ -71,6 +72,12 @@ def callback_spoken(doubt: Doubt) -> Spoken | None:
     return Spoken(text=doubt.callback, audio_url=f"/media/{callback_path(doubt.id)}", duration_ms=0)
 
 
+def fixed_line(sess: TutorSession, text: str):
+    """A fixed spoken line (cached audio) in the lesson's voice and language."""
+    lesson = sess.lesson
+    return speak_cached(line_for(text, get_voice(lesson.voice).gender, lesson.language), lesson.voice)
+
+
 def touch(sess: TutorSession) -> None:
     sess.updated_at = func.clock_timestamp()
 
@@ -98,6 +105,15 @@ def create_guest(body: GuestIn, db: Session = Depends(get_db)):
 @router.get("/guests/{guest_id}", response_model=GuestOut)
 def get_guest(guest_id: str, db: Session = Depends(get_db)):
     return guest_out(db, get_guest_or_404(db, guest_id))
+
+
+@router.patch("/guests/{guest_id}", response_model=GuestOut)
+def update_guest(guest_id: str, body: GuestUpdate, db: Session = Depends(get_db)):
+    """The student's language choice; the home page lists the lessons in it."""
+    guest = get_guest_or_404(db, guest_id)
+    guest.language = body.language
+    db.commit()
+    return guest_out(db, guest)
 
 
 @router.post("/sessions", response_model=SessionOut)
@@ -160,12 +176,12 @@ async def record_answer(session_id: str, body: CheckIn, db: Session = Depends(ge
         # The player plays the hint for the picked option and lets the student try again
         text = CHECK_LINES["wrong_try_again"]
     else:
-        text = reveal_line(q["correct_index"])
+        text = reveal_line(q["correct_index"], sess.lesson.language)
     return CheckOut(
         correct=correct,
         correct_index=q["correct_index"],
         explanation=q["explanation"],
-        feedback=await speak_cached(text, sess.lesson.voice),
+        feedback=await fixed_line(sess, text),
     )
 
 
@@ -190,12 +206,12 @@ async def retry_answer(session_id: str, body: CheckIn, db: Session = Depends(get
     correct = later_attempt(db, sess, body, "retry", q)
     update_mastery(db, sess.guest_id, q["concept"], lambda s: retry_mastery(s, correct), attempt=False)
     db.commit()
-    text = CHECK_LINES["retry_correct"] if correct else reveal_line(q["correct_index"])
+    text = CHECK_LINES["retry_correct"] if correct else reveal_line(q["correct_index"], sess.lesson.language)
     return CheckOut(
         correct=correct,
         correct_index=q["correct_index"],
         explanation=q["explanation"],
-        feedback=await speak_cached(text, sess.lesson.voice),
+        feedback=await fixed_line(sess, text),
     )
 
 
@@ -210,12 +226,12 @@ async def twin_answer(session_id: str, body: CheckIn, db: Session = Depends(get_
     correct = later_attempt(db, sess, body, "twin", twin)
     update_mastery(db, sess.guest_id, q["concept"], lambda s: next_mastery(s, correct), attempt=True)
     db.commit()
-    text = CHECK_LINES["twin_correct"] if correct else reveal_line(twin["correct_index"])
+    text = CHECK_LINES["twin_correct"] if correct else reveal_line(twin["correct_index"], sess.lesson.language)
     return CheckOut(
         correct=correct,
         correct_index=twin["correct_index"],
         explanation=twin["explanation"],
-        feedback=await speak_cached(text, sess.lesson.voice),
+        feedback=await fixed_line(sess, text),
     )
 
 
@@ -263,7 +279,8 @@ async def end_session_summary(session_id: str, db: Session = Depends(get_db)):
         ensure_ascii=False,
     )
     voice = sess.lesson.voice
-    draft = await llm.complete_json(for_gender(SUMMARY_SYSTEM, get_voice(voice).gender), user, SummaryDraft)
+    system = for_gender(SUMMARY_SYSTEM, get_voice(voice).gender, sess.lesson.language)
+    draft = await llm.complete_json(system, user, SummaryDraft)
     speech = await speak(" ".join(draft.lines), f"sessions/{sess.id}_summary.wav", voice)
     out = SummaryOut(**draft.model_dump(), speech=speech)
     sess.summary = out.model_dump()

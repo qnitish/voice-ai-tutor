@@ -9,8 +9,34 @@ import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select'
 import { api } from '@/lib/api'
+import { type Language, languageOf } from '@/lib/i18n'
 import type { LessonProgress, LessonSummary } from '@/lib/types'
 import { useGuestStore } from '@/store/guest'
+
+const LANGUAGES: { value: Language; label: string }[] = [
+  { value: 'hinglish', label: 'Hinglish' },
+  { value: 'english', label: 'English' },
+]
+
+/** The student's lesson language; saved on the guest so it is remembered. */
+function LanguageToggle({ value, onChange }: { value: Language; onChange: (l: Language) => void }) {
+  return (
+    <div className="bg-muted inline-flex rounded-lg p-1" role="radiogroup" aria-label="Lesson language">
+      {LANGUAGES.map((l) => (
+        <Button
+          key={l.value}
+          size="sm"
+          variant={value === l.value ? 'default' : 'ghost'}
+          role="radio"
+          aria-checked={value === l.value}
+          onClick={() => onChange(l.value)}
+        >
+          {l.label}
+        </Button>
+      ))}
+    </div>
+  )
+}
 
 function GuestForm() {
   const setGuest = useGuestStore((s) => s.setGuest)
@@ -66,9 +92,11 @@ function GuestForm() {
                   <SelectValue />
                 </SelectTrigger>
                 <SelectContent>
-                  <SelectItem value="hinglish">Hinglish</SelectItem>
-                  <SelectItem value="hindi">Hindi</SelectItem>
-                  <SelectItem value="english">English</SelectItem>
+                  {LANGUAGES.map((l) => (
+                    <SelectItem key={l.value} value={l.value}>
+                      {l.label}
+                    </SelectItem>
+                  ))}
                 </SelectContent>
               </Select>
             </div>
@@ -108,6 +136,19 @@ export function HomePage({ onStart }: { onStart: (slug: string) => void }) {
 
   if (!guest) return <GuestForm />
 
+  const language = languageOf(guest.language)
+  const shown = lessons?.filter((l) => languageOf(l.language) === language)
+
+  async function chooseLanguage(next: Language) {
+    if (!guest || next === language) return
+    setGuest({ ...guest, language: next })
+    try {
+      setGuest(await api.setLanguage(guest.id, next))
+    } catch {
+      toast.error('Could not save your language.')
+    }
+  }
+
   return (
     <div className="mx-auto flex w-full max-w-3xl flex-col gap-6">
       <div className="flex items-end justify-between gap-4">
@@ -115,18 +156,24 @@ export function HomePage({ onStart }: { onStart: (slug: string) => void }) {
           <h1 className="text-2xl font-semibold">Hi {guest.name}!</h1>
           <p className="text-muted-foreground text-sm">Pick a lesson. You can interrupt the tutor anytime with the mic.</p>
         </div>
-        <Button variant="ghost" size="sm" onClick={() => setGuest(null)}>
-          Not {guest.name}?
-        </Button>
+        <div className="flex items-center gap-2">
+          <LanguageToggle value={language} onChange={(l) => void chooseLanguage(l)} />
+          <Button variant="ghost" size="sm" onClick={() => setGuest(null)}>
+            Not {guest.name}?
+          </Button>
+        </div>
       </div>
       {lessons === null && <p className="text-muted-foreground text-sm">Loading lessons…</p>}
+      {lessons !== null && lessons.length > 0 && shown?.length === 0 && (
+        <p className="text-muted-foreground text-sm">No lessons in {language === 'english' ? 'English' : 'Hinglish'} yet.</p>
+      )}
       {lessons?.length === 0 && (
         <p className="text-muted-foreground text-sm">
           No lessons yet. Run <code>python -m app.prep</code> in the backend to create one.
         </p>
       )}
       <div className="grid gap-4 sm:grid-cols-2">
-        {lessons?.map((l) => {
+        {shown?.map((l) => {
           const p = progress[l.slug]
           return (
             <Card key={l.slug}>

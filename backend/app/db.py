@@ -21,6 +21,7 @@ def migrate() -> None:
     Base.metadata.create_all(engine)
     with engine.begin() as conn:
         conn.execute(text("ALTER TABLE lessons ADD COLUMN IF NOT EXISTS voice varchar(60)"))
+        conn.execute(text("ALTER TABLE lessons ADD COLUMN IF NOT EXISTS language varchar(20) NOT NULL DEFAULT 'hinglish'"))
 
 
 def new_id() -> str:
@@ -44,6 +45,8 @@ class Lesson(Base):
     transcript: Mapped[str]
     # Tutor voice for everything spoken in this lesson (app.voices); null = the default voice
     voice: Mapped[str | None] = mapped_column(String(60))
+    # What the tutor speaks for this lesson (app.language): "hinglish" or "english"
+    language: Mapped[str] = mapped_column(String(20), default="hinglish", server_default="hinglish")
     created_at: Mapped[datetime] = mapped_column(server_default=func.now())
     scenes: Mapped[list["Scene"]] = relationship(
         back_populates="lesson", order_by="Scene.idx", cascade="all, delete-orphan"

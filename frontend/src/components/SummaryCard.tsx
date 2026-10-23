@@ -1,22 +1,24 @@
 import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
 import { Card, CardContent, CardFooter, CardHeader, CardTitle } from '@/components/ui/card'
+import { t } from '@/lib/i18n'
 import { usePlayer } from '@/store/player'
 
 export function SummaryCard({ onExit }: { onExit: () => void }) {
   const summary = usePlayer((s) => s.summary)
+  const lesson = usePlayer((s) => s.lesson)
   if (!summary) return null
 
   return (
     <Card className="w-full max-w-xl shadow-xl">
       <CardHeader>
-        <CardTitle>Aaj ka summary</CardTitle>
+        <CardTitle>{t(lesson, 'summaryTitle')}</CardTitle>
       </CardHeader>
       <CardContent className="flex flex-col gap-4 text-sm">
         <p className="leading-relaxed">{summary.lines.join(' ')}</p>
         {summary.revise.length > 0 && (
           <div>
-            <p className="mb-1 font-medium">Revise karo</p>
+            <p className="mb-1 font-medium">{t(lesson, 'revise')}</p>
             <ul className="list-disc pl-5">
               {summary.revise.map((r) => (
                 <li key={r}>{r}</li>
