@@ -1,14 +1,14 @@
 """Offline lesson prep: lecture audio -> transcript -> scenes -> narration audio -> remediation -> Postgres.
 
     python -m app.prep <audio-or-video-file> --slug biot-savart [--start-min 0] [--minutes 10] [--redo STAGE] [--voice NAME]
-        [--language hinglish|english] [--lecture-language hindi|english] [--share-from SLUG]
+        [--language hinglish|english] [--lecture-language hindi|english] [--share-from SLUG] [--label TEXT]
 
 Each stage caches its output in data/lessons/<slug>/ and is skipped when rerun;
 --redo STAGE deletes that stage's cache and every later one. --voice uses a voice from app.voices (e.g. a clone)
 for everything spoken in the lesson; changing it needs --redo scenes, since the narration's verbs follow its gender.
 --language is what the tutor speaks; --lecture-language is what the recording is in (picks the STT language).
 --share-from copies another slug's transcript and outline (e.g. the same lecture in the other language), so both
-versions teach the same scenes and the lecture is transcribed once.
+versions teach the same scenes and the lecture is transcribed once. --label is a short build note the app shows as a tag.
 """
 
 import argparse
@@ -254,6 +254,7 @@ def load_db(
     remedies: list[dict],
     voice: str | None = None,
     language: str = "hinglish",
+    label: str | None = None,
 ) -> int:
     """Publish as a new lesson version; returns the version number."""
     migrate()
@@ -268,7 +269,7 @@ def load_db(
         for meta, scene, remedy in zip(outline.scenes, scenes, remedies)
     ]
     with SessionLocal.begin() as db:
-        return publish_lesson(db, slug, outline.title, transcript, rows, voice, language).version
+        return publish_lesson(db, slug, outline.title, transcript, rows, voice, language, label).version
 
 
 async def run(args: argparse.Namespace) -> None:
@@ -334,7 +335,7 @@ async def run(args: argparse.Namespace) -> None:
     scenes = await cached("audio", lambda: narrate(args.slug, drafts, args.voice))
     remedies = await cached("remedy", lambda: remediate(args.slug, outline, drafts, args.voice, transcript, args.language))
     await make_fillers(args.voice, args.language)
-    version = load_db(args.slug, outline, transcript, scenes, remedies, args.voice, args.language)
+    version = load_db(args.slug, outline, transcript, scenes, remedies, args.voice, args.language, args.label)
     steps = sum(len(s["steps"]) for s in scenes)
     log.info(
         "published lesson '%s' (%s v%d): %d scenes, %d steps", outline.title, args.slug, version, len(scenes), steps
@@ -359,6 +360,7 @@ def main() -> None:
         "--lecture-language", choices=["hindi", "english"], default="hindi", help="language of the recording (for STT)"
     )
     parser.add_argument("--share-from", help="reuse this slug's transcript and outline")
+    parser.add_argument("--label", help="short build note shown as a tag in the app, e.g. 'Pause rules'")
     logging.basicConfig(level=logging.INFO, format="%(asctime)s %(name)s %(message)s")
     logging.getLogger("httpx").setLevel(logging.WARNING)
     asyncio.run(run(parser.parse_args()))

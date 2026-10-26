@@ -22,6 +22,7 @@ def migrate() -> None:
     with engine.begin() as conn:
         conn.execute(text("ALTER TABLE lessons ADD COLUMN IF NOT EXISTS voice varchar(60)"))
         conn.execute(text("ALTER TABLE lessons ADD COLUMN IF NOT EXISTS language varchar(20) NOT NULL DEFAULT 'hinglish'"))
+        conn.execute(text("ALTER TABLE lessons ADD COLUMN IF NOT EXISTS label varchar(60)"))
 
 
 def new_id() -> str:
@@ -47,6 +48,8 @@ class Lesson(Base):
     voice: Mapped[str | None] = mapped_column(String(60))
     # What the tutor speaks for this lesson (app.language): "hinglish" or "english"
     language: Mapped[str] = mapped_column(String(20), default="hinglish", server_default="hinglish")
+    # Free-text build note shown as a tag in the app (e.g. which prompt rules made it); prep --label
+    label: Mapped[str | None] = mapped_column(String(60))
     created_at: Mapped[datetime] = mapped_column(server_default=func.now())
     scenes: Mapped[list["Scene"]] = relationship(
         back_populates="lesson", order_by="Scene.idx", cascade="all, delete-orphan"

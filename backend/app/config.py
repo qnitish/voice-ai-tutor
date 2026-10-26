@@ -31,6 +31,15 @@ class Settings(BaseSettings):
     gnani_tts_voice: str = "Shivani"
     gnani_tts_language: str = "hi-en"
     gnani_stt_language: str = "hi-IN"
+    sarvam_api_key: str = ""
+    sarvam_stt_model: str = "saaras:v3"
+    sarvam_stt_language: str = "hi-IN"
+    # Roman-script narration sounds more natural read as en-IN, also for Hinglish
+    sarvam_tts_language: str = "en-IN"
+    sarvam_tts_model: str = "bulbul:v3"
+    # Stock speaker for voices without a Sarvam clone (only when TTS_PROVIDER=sarvam)
+    sarvam_tts_speaker: str = "shubh"
+    sarvam_concurrency: int = 4
     # Gender of the default voice; prompts and fixed lines use matching first-person verbs
     tutor_gender: str = "female"
 

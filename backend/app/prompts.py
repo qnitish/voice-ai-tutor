@@ -1,5 +1,16 @@
 """All LLM prompts in one place so the tutor's voice and board rules stay consistent."""
 
+# Punctuation is the only pacing control the TTS voices have (no SSML or tags), so the prompts ask for it explicitly
+PAUSE_RULES = """\
+- Pace the speech with punctuation, like a teacher talking, not reading. The voice pauses at:
+  "," short pause: between the parts of an explanation, after a topic name you introduce, before the actual ask.
+  "." sentence end: after every complete idea; split a long line into two sentences instead of chaining commas.
+  "!" emphasis and pause: when correcting a misconception ("Nahi! Yeh zaroori nahi hai.") or stressing a key result.
+  "..." hesitation: at most once in a step, before revealing something ("Aur initial velocity... zero nahi hai!").
+  Questions to the student end with "?".
+  No line breaks inside "say": each step or line is already spoken as its own clip, with a pause in between.
+  Never use "।" (danda); end sentences with "." because "say" is in Roman script."""
+
 SPEECH_RULES = """\
 Rules for every "say" field (it is sent straight to a text-to-speech voice):
 - Hinglish: Hindi written in Roman (Latin) script, mixed with English technical terms, like a friendly Indian teacher
@@ -8,7 +19,8 @@ Rules for every "say" field (it is sent straight to a text-to-speech voice):
 - 1-2 short sentences, at most about 30 words.
 - Must be speakable: no symbols, no formulas written with symbols, no abbreviations, no emojis.
   Write maths as words: "mu naught by four pi", "r square", "sin theta", "d B", "I d l".
-  Write numbers as words ("das", "ninety degree")."""
+  Write numbers as words ("das", "ninety degree").
+""" + PAUSE_RULES
 
 # Replaces SPEECH_RULES in every prompt of an English lesson
 SPEECH_RULES_EN = """\
@@ -18,7 +30,10 @@ Rules for every "say" field (it is sent straight to a text-to-speech voice):
 - 1-2 short sentences, at most about 30 words.
 - Must be speakable: no symbols, no formulas written with symbols, no abbreviations, no emojis.
   Write maths as words: "mu naught by four pi", "r squared", "sin theta", "d B", "I d l".
-  Write numbers as words ("ten", "ninety degrees")."""
+  Write numbers as words ("ten", "ninety degrees").
+""" + PAUSE_RULES.replace('"Nahi! Yeh zaroori nahi hai."', '"No! It does not have to be zero."').replace(
+    '"Aur initial velocity... zero nahi hai!"', '"And the initial velocity... is not zero!"'
+)
 
 # Appended to every prompt of an English lesson: the prompts quote Hinglish phrases, these are their English forms
 ENGLISH_NOTE = """\

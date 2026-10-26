@@ -5,6 +5,7 @@ import { toast } from 'sonner'
 import { Board } from '@/components/Board'
 import { CheckCard } from '@/components/CheckCard'
 import { DoubtList } from '@/components/DoubtList'
+import { LessonTags } from '@/components/LessonTags'
 import { MicButton } from '@/components/MicButton'
 import { SummaryCard } from '@/components/SummaryCard'
 import { Badge } from '@/components/ui/badge'
@@ -84,6 +85,7 @@ export function LessonPage({ slug, onExit }: { slug: string; onExit: () => void 
             Scene {sceneIdx + 1}/{lesson.scenes.length}: {scene?.title}
           </p>
         </div>
+        <LessonTags tags={lesson.tags} />
         <Progress value={progressPercent(lesson, sceneIdx, stepIdx)} className="w-40" />
       </header>
 

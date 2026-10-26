@@ -431,6 +431,8 @@ class LessonSummaryOut(BaseModel):
     scene_count: int
     version: int
     language: str = "hinglish"
+    # Shown on the lesson card to tell builds apart: language, voice, build number, prep --label
+    tags: list[str] = []
 
 
 class LessonOut(BaseModel):
@@ -442,6 +444,7 @@ class LessonOut(BaseModel):
     voice_gender: Literal["female", "male"] = "female"
     # What the tutor speaks ("hinglish" | "english"); the UI's own lines follow it
     language: str = "hinglish"
+    tags: list[str] = []
     scenes: list[SceneOut]
 
 

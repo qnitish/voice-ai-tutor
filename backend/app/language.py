@@ -7,7 +7,7 @@ from typing import Literal
 Language = Literal["hinglish", "english"]
 DEFAULT: Language = "hinglish"
 
-# Gnani STT language codes; Hinglish speech is recognised as Hindi (Devanagari), which the routing prompt expects
+# STT language codes (Gnani and Sarvam); Hinglish speech is recognised as Hindi (Devanagari), which the routing prompt expects
 STT_CODES: dict[str, str] = {"hinglish": "hi-IN", "hindi": "hi-IN", "english": "en-IN"}
 
 # Language of the current STT call, set by the live API around transcribe(); None = the configured default

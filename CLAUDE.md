@@ -39,6 +39,11 @@ cd backend && .venv/bin/pytest tests/test_routing.py -k clarify                 
 cd frontend && npm test                                                          # vitest, pure engine modules
 ```
 
+Try a prompt or voice change on a few clips before re-preparing a lesson: `.venv/bin/python scripts/voice_samples.py --tag v2
+--note "…"` writes one scene's narration, check, remedy and a doubt answer to `data/media/samples/<name>/<tag>/`, and
+`/media/samples/<name>/index.html` plays the tags side by side. Lessons carry tags in the app (language, voice, build `vN`,
+prep `--label`), so builds of the same lecture can be told apart.
+
 Test checksums are in `docs/plan/tests.lock`. Ports 8000 and 5432 are used by other local projects, hence 8010 and 5440.
 Secrets live in the root `.env` (read by `backend/app/config.py`); `.env.example` lists every key.
 
@@ -83,6 +88,11 @@ write a module and register it in `providers/__init__.py`. Gnani specifics: auth
 ~30–60 s per request; the account allows **one STT and one TTS request at a time** (`GnaniSTT`/`GnaniTTS` each
 serialize with a semaphore); its WAV
 headers carry placeholder sizes, so `audio.to_wav` always re-encodes TTS output and measures duration from the PCM.
+Sarvam specifics (`sarvam.py`): header `api-subscription-key`; STT `saaras:v3` (`codemix` for Hindi, ≤30 s); cloned-voice
+TTS via `/voices/clone` (beta, ≤1000 chars, longer text is split at sentences) and read as `en-IN`, which speaks
+Roman-script Hinglish better than `hi-IN`; requests retry on 429/5xx and timeouts. No SSML or expression tags: pacing
+comes only from punctuation (`PAUSE_RULES`) and `pace`. A cloned voice only exists at its vendor, so `get_tts()` picks
+the provider from the current voice (`sarvam_id` → Sarvam, `embedding` → Gnani) and uses `TTS_PROVIDER` only for stock voices.
 
 **Languages** (`backend/app/language.py`): a lesson is prepared in one language (`lessons.language`, `hinglish` or
 `english`; prep `--language`), and the two versions of a lecture are separate slugs (`--share-from` reuses the
@@ -94,12 +104,12 @@ STT language of the recording. The student picks Hinglish/English on the home pa
 /api/guests/{id}`), which lists only lessons in that language; the UI's own lines follow the lesson (`frontend/src/lib/i18n.ts`).
 
 **Voices** (`backend/app/voices.py`): a lesson stores a voice name (`lessons.voice`, null = stock `GNANI_TTS_VOICE`);
-cloned voices are Gnani speaker embeddings in `data/voices/<name>.json` (`python -m app.voices clone …`, only with the
-speaker's permission). Everything spoken for a lesson uses its voice (`speak(..., voice)`, per-voice `speak_cached` and
+cloned voices are Gnani speaker embeddings or Sarvam voice ids in `data/voices/<name>.json` (`python -m app.voices
+clone … [--provider sarvam]`, only with the speaker's permission). Everything spoken for a lesson uses its voice (`speak(..., voice)`, per-voice `speak_cached` and
 filler folders), and a male voice swaps the female first-person rule in prompts (`for_gender`) and fixed lines (`line_for`).
 
 **Prompts** all live in `backend/app/prompts.py`: shared `SPEECH_RULES` (Roman-script Hinglish, speakable maths, female
-first-person verbs to match the voice) and `DRAW_SPEC` (the whiteboard DSL). The draw action schema is in
+first-person verbs to match the voice, and `PAUSE_RULES`: punctuation for pauses and emphasis, no line breaks) and `DRAW_SPEC` (the whiteboard DSL). The draw action schema is in
 `backend/app/schemas.py`, mirrored in `frontend/src/lib/types.ts`, and turned into strokes and text by
 `frontend/src/engine/geometry.ts` (which `Board.tsx` renders). Change all of them together. Besides primitives there are
 blocks (wire, charge, compass, magnet, axes, region, flow, chain, ring, curve) that the board draws with fixed

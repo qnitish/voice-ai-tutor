@@ -2,6 +2,7 @@ import { BookOpen, Play } from 'lucide-react'
 import { type FormEvent, useEffect, useState } from 'react'
 import { toast } from 'sonner'
 
+import { LessonTags } from '@/components/LessonTags'
 import { Button } from '@/components/ui/button'
 import { Card, CardContent, CardDescription, CardFooter, CardHeader, CardTitle } from '@/components/ui/card'
 import { Progress } from '@/components/ui/progress'
@@ -180,6 +181,7 @@ export function HomePage({ onStart }: { onStart: (slug: string) => void }) {
               <CardHeader>
                 <BookOpen className="text-muted-foreground mb-2 size-5" />
                 <CardTitle className="leading-snug">{l.title}</CardTitle>
+                <LessonTags tags={l.tags} />
                 <CardDescription>
                   {l.scene_count} scenes
                   {p && p.checks_total > 0 && ` · ${p.checks_correct}/${p.checks_total} checks correct`}

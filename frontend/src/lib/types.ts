@@ -148,6 +148,8 @@ export interface Lesson {
   voice_gender: 'female' | 'male'
   /** What the tutor speaks; UI lines follow it (lib/i18n) */
   language: string
+  /** Language, voice, build ("v2") and build note, shown in the header */
+  tags?: string[]
   scenes: Scene[]
 }
 
@@ -157,6 +159,8 @@ export interface LessonSummary {
   scene_count: number
   version: number
   language: string
+  /** Language, voice, build ("v2") and build note, shown on the card */
+  tags?: string[]
 }
 
 export interface Guest {
