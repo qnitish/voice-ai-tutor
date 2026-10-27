@@ -166,12 +166,14 @@ async def close_thread(
 ) -> ThreadOut:
     """End a thread (resolved | capped | abandoned) with its recap when it was long enough. Commits."""
     policy = ThreadPolicy.from_settings()
-    thread.status = status
-    thread.ended_at = datetime.now(timezone.utc)
+    # The recap is made before the thread row changes, so no row lock is held while the LLM and TTS run
     recap = None
     if needs_recap(thread.turns, thread.audio_ms, policy) and not is_checkpoint_thread(db, thread):
         recap = Spoken(**thread.recap) if thread.recap else await make_recap(thread, lesson)
-        thread.recap = recap.model_dump() if recap else None
+    thread.status = status
+    thread.ended_at = datetime.now(timezone.utc)
+    if recap:
+        thread.recap = recap.model_dump()
     db.commit()
     log_event(
         "thread.closed",
@@ -188,20 +190,23 @@ async def close_thread(
 async def prepare_recap(thread_id: str) -> None:
     """Background: generate and store the recap as soon as the thread is long enough, so "Got it" doesn't wait."""
     policy = ThreadPolicy.from_settings()
-    with SessionLocal() as db:  # kept open: make_recap reads the lesson's chapters
+    # No session stays open across the LLM/TTS awaits: an idle transaction would hold locks (and a background task
+    # can be suspended mid-way when its event loop stops)
+    with SessionLocal() as db:
         thread = db.get(DoubtThread, thread_id)
         if not thread or thread.recap or thread.status != "open":
             return
         if not needs_recap(thread.turns, thread.audio_ms, policy) or is_checkpoint_thread(db, thread):
             return
         lesson = db.get(TutorSession, thread.session_id).lesson
-        recap = await make_recap(thread, lesson)
-        if not recap:
-            return
-        db.refresh(thread)
-        if not thread.recap:  # close_thread may have stored one meanwhile
+        lesson.chapters  # loaded now; make_recap reads them after the session is closed
+    recap = await make_recap(thread, lesson)
+    if not recap:
+        return
+    with SessionLocal.begin() as db:
+        thread = db.get(DoubtThread, thread_id)
+        if thread and not thread.recap:  # close_thread may have stored one meanwhile
             thread.recap = recap.model_dump()
-            db.commit()
 
 
 def schedule_recap(thread_id: str) -> None:
