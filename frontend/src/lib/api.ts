@@ -1,5 +1,6 @@
 import axios from 'axios'
 
+import { reportError } from '@/lib/telemetry'
 import type {
   CheckResult,
   Clip,
@@ -19,6 +20,19 @@ import type {
 } from '@/lib/types'
 
 const http = axios.create({ baseURL: '/api' })
+
+// Server errors and network failures are reported as session events (telemetry.ts); the
+// report itself goes through /events, which is left out so a failing report can't loop.
+http.interceptors.response.use(undefined, (error: unknown) => {
+  if (axios.isAxiosError(error) && !axios.isCancel(error)) {
+    const url = error.config?.url ?? ''
+    const status = error.response?.status
+    if (!url.includes('/events') && (status === undefined || status >= 500)) {
+      reportError('api.request', error, { url, method: error.config?.method, status: status ?? null })
+    }
+  }
+  return Promise.reject(error)
+})
 
 export const api = {
   listLessons: () => http.get<LessonSummary[]>('/lessons').then((r) => r.data),
