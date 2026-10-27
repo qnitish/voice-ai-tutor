@@ -32,6 +32,18 @@ const LINES = {
     questionFailed: 'Sawal bhejne mein dikkat hui. Phir se try karo.',
     answerFailed: 'Jawab bhejne mein dikkat hui. Phir se try karo.',
     makingSummary: 'Aaj ka summary bana {rahi} hoon…',
+    // Video lessons
+    gotIt: 'Samajh aaya?',
+    gotItYes: 'Haan, samajh gaya',
+    askAnother: 'Ek aur sawal',
+    resumingIn: '{s}s mein video chalega',
+    continueFrom: '{time} se continue karo',
+    startVideo: 'Lecture shuru karo',
+    chapters: 'Chapters',
+    questionOf: 'Sawal {n}/{total}',
+    replayingTeacher: 'Teacher ka explanation phir se…',
+    videoError: 'Kuch gadbad hui. Lecture continue kar {rahi} hoon.',
+    videoEnded: 'Lecture khatam!',
   },
   english: {
     quickCheck: 'Quick check',
@@ -58,6 +70,18 @@ const LINES = {
     questionFailed: "Couldn't send your question. Please try again.",
     answerFailed: "Couldn't send your answer. Please try again.",
     makingSummary: "Preparing today's summary…",
+    // Video lessons
+    gotIt: 'Did that make sense?',
+    gotItYes: 'Got it',
+    askAnother: 'Ask another',
+    resumingIn: 'Resuming in {s}s',
+    continueFrom: 'Continue from {time}',
+    startVideo: 'Start lecture',
+    chapters: 'Chapters',
+    questionOf: 'Question {n} of {total}',
+    replayingTeacher: "Replaying the teacher's explanation…",
+    videoError: 'Something went wrong. Continuing the lecture.',
+    videoEnded: 'Lecture finished!',
   },
 } satisfies Record<Language, Record<string, string>>
 

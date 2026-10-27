@@ -4,7 +4,8 @@
  */
 import { create } from 'zustand'
 
-import type { AnsweredQuestion, CheckResult, Intent, Lesson, Thread } from '@/lib/types'
+import type { MicState } from '@/engine/host'
+import type { AnsweredQuestion, CheckResult, Intent, Lesson, SessionSummary, Thread } from '@/lib/types'
 
 export type VideoMode =
   | 'idle' // not started
@@ -54,10 +55,19 @@ export interface VideoPlayerState {
   caption: string
   /** The open doubt thread, if any */
   thread: Thread | null
+  /** thread_prompt / awaiting follow-up: when (Date.now() ms) the idle timer ends the thread */
+  promptEndsAt: number | null
+  /** After "Ask another": waiting for the student's follow-up question (idle timer runs too) */
+  awaitingFollowup: boolean
+  /** True while a question is being recorded or routed (the mic button shows listening/thinking) */
+  listening: boolean
+  thinking: boolean
   checkpoint: CheckpointView | null
   /** Checkpoint answers so far (first/retry/skip) */
   answered: AnsweredQuestion[]
   doubts: VideoDoubtView[]
+  /** Set by the engine when the video ends (it calls api.summary) */
+  summary: SessionSummary | null
   error: string | null
 }
 
@@ -70,12 +80,28 @@ export const initialVideoState: VideoPlayerState = {
   overlay: false,
   caption: '',
   thread: null,
+  promptEndsAt: null,
+  awaitingFollowup: false,
+  listening: false,
+  thinking: false,
   checkpoint: null,
   answered: [],
   doubts: [],
+  summary: null,
   error: null,
 }
 
 export const useVideo = create<VideoPlayerState>()(() => initialVideoState)
 
 export const setVideo = useVideo.setState
+
+/**
+ * Mic button state for the video page: open while playing, paused, answering or at the "Got it?" prompt, and in a
+ * checkpoint only at its follow-up step.
+ */
+export function micState(s: VideoPlayerState): MicState {
+  const enabled = s.checkpoint
+    ? s.mode === 'checkpoint' && s.checkpoint.followup && !s.checkpoint.busy
+    : ['playing', 'paused', 'answering', 'thread_prompt'].includes(s.mode)
+  return { enabled: enabled && !s.thinking, listening: s.listening, thinking: s.thinking }
+}

@@ -6,7 +6,8 @@ import wave
 from pathlib import Path
 
 from app.config import settings
-from app.providers import get_tts
+from app.language import current_stt_language
+from app.providers import get_stt, get_tts
 from app.schemas import Spoken
 from app.voices import current_voice, get_voice, is_default
 
@@ -62,6 +63,18 @@ async def speak(text: str, rel_path: str, voice: str | None = None) -> Spoken:
         current_voice.reset(token)
     wav, duration_ms = await asyncio.to_thread(to_wav, raw, TTS_RATE)
     return Spoken(text=text, audio_url=save_media(rel_path, wav), duration_ms=duration_ms)
+
+
+async def transcribe(wav: bytes, language: str, **context) -> str:
+    """STT in the lesson's language (`context` = session_id/doubt_id for logging).
+
+    Contract for B4 (docs/plan/video-lesson-spec.md 2.5): add retries on network/429/5xx and the stt.done event.
+    """
+    token = current_stt_language.set(language)
+    try:
+        return await get_stt().transcribe(wav)
+    finally:
+        current_stt_language.reset(token)
 
 
 async def speak_cached(text: str, voice: str | None = None) -> Spoken:

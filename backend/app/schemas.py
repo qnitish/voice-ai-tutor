@@ -735,6 +735,11 @@ class ThreadReplyIn(BaseModel):
     understood: bool
 
 
+class ThreadAbandonIn(BaseModel):
+    # "error": answering failed, the reply's line is the sorry line
+    reason: Literal["idle", "error"] = "idle"
+
+
 class VideoPositionIn(BaseModel):
     at_ms: int = Field(ge=0)
 
@@ -781,6 +786,16 @@ class ClientEventIn(BaseModel):
     kind: str = Field(min_length=1, max_length=60)
     level: Literal["info", "warn", "error"] = "info"
     data: dict = {}
+
+
+class SessionEventOut(BaseModel):
+    id: int
+    kind: str
+    level: str
+    thread_id: str | None
+    doubt_id: str | None
+    data: dict
+    created_at: datetime
 
 
 LessonOut.model_rebuild()

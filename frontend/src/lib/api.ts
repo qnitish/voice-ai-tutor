@@ -77,8 +77,9 @@ export const api = {
   /** "Got it" (understood) or "Ask another" after an answer */
   threadReply: (threadId: string, understood: boolean) =>
     http.post<Thread>(`/threads/${threadId}/reply`, { understood }).then((r) => r.data),
-  /** The "Got it?" prompt went unanswered (policy.idle_ms) or the student left */
-  threadAbandon: (threadId: string) => http.post<Thread>(`/threads/${threadId}/abandon`).then((r) => r.data),
+  /** The "Got it?" prompt went unanswered (policy.idle_ms), or answering failed ("error": the reply has a sorry line) */
+  threadAbandon: (threadId: string, reason: 'idle' | 'error' = 'idle') =>
+    http.post<Thread>(`/threads/${threadId}/abandon`, { reason }).then((r) => r.data),
   saveVideoPosition: (sessionId: string, atMs: number) =>
     http.post(`/sessions/${sessionId}/video/position`, { at_ms: Math.round(atMs) }),
   checkpointAnswer: (sessionId: string, checkpointIdx: number, questionIdx: number, chosenIndex: number, kind: 'first' | 'retry' = 'first') =>
