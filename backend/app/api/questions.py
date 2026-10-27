@@ -38,6 +38,9 @@ ANSWER_WHEN = {
     "off_topic": "none",
     "unclear": "none",
     "clarify": "none",
+    # Video-only intents; the scene router's prompt doesn't offer them
+    "reply": "now",
+    "overview": "now",
 }
 # Below this confidence, these intents are confirmed with the student before answering
 CLARIFY_BELOW = 0.6

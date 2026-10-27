@@ -12,6 +12,8 @@ const INTENTS = new Set<Intent>([
   'off_topic',
   'unclear',
   'clarify',
+  'reply',
+  'overview',
 ])
 
 /** Status right after routing: a "now" answer is queued until it plays. */

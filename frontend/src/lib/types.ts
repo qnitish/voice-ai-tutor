@@ -255,6 +255,9 @@ export type Intent =
   | 'off_topic'
   | 'unclear'
   | 'clarify'
+  // Video lessons only: an answer / reaction to the tutor, and "what does the lecture cover?"
+  | 'reply'
+  | 'overview'
 /** "now" plays the answer immediately; "replay" restarts the current step */
 export type AnswerWhen = 'none' | 'now' | 'replay' | 'step_end' | 'scene_end' | 'target_scene'
 

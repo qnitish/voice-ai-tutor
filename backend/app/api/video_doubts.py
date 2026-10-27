@@ -5,6 +5,7 @@ The answer itself streams from GET /api/doubts/{id}/answer (questions.py), which
 """
 
 import asyncio
+import re
 
 from fastapi import APIRouter, BackgroundTasks, Depends, Form, HTTPException, UploadFile
 from sqlalchemy import select
@@ -51,6 +52,8 @@ ANSWER_WHEN = {
     "prerequisite": "now",
     "confused": "now",
     "repeat": "replay",
+    "reply": "now",
+    "overview": "now",
     "continue": "none",
     "off_topic": "none",
     "unclear": "none",
@@ -59,6 +62,10 @@ ANSWER_WHEN = {
 STRUGGLE_INTENTS = {"confused", "repeat", "prerequisite"}
 # Asked from a checkpoint's follow-up step: anything on topic is re-explained right away
 KEEP_DURING_CHECKPOINT = {"off_topic", "unclear", "continue"}
+# Answered without using one of the thread's follow-up turns: a reply to the tutor's own question isn't a new doubt
+NO_TURN_INTENTS = {"reply"}
+# A rewritten "question" that describes the student instead of quoting them is replaced by what STT heard
+META_QUESTION = re.compile(r"^\s*(the student|student's|the doubt|this doubt|unclear|not understandable)", re.I)
 # "repeat" seeks back this far (not before the chapter start)
 REPLAY_MS = 30_000
 ROUTING_WINDOW_MS = 60_000
@@ -108,9 +115,22 @@ def thread_history(db: Session, thread_id: str | None, before: Doubt | None = No
         return ""
     lines = []
     for d in rows:
-        said = " ".join(a["say"] for a in d.answer) if d.answer else "(not answered)"
-        lines.append(f"- Doubt: {d.question} ({d.intent})\n  Tutor answered: {said}")
-    return "Earlier doubts in this thread (oldest first):\n" + "\n".join(lines) + "\n\n"
+        answer = " ".join(a["say"] for a in d.answer) if d.answer else "(not answered)"
+        heard = f' (student said: "{d.said}")' if d.said and d.said != d.question else ""
+        lines.append(f"- Doubt: {d.question}{heard} ({d.intent})\n  Tutor answered: {answer}")
+    last = tutor_last_line(rows)
+    return (
+        "Earlier doubts in this thread (oldest first):\n" + "\n".join(lines) + "\n\n"
+        + (f'Tutor\'s last line to the student: "{last}"\n\n' if last else "")
+    )
+
+
+def tutor_last_line(rows: list[Doubt]) -> str:
+    """The last thing the tutor said in the thread (its closing question, usually)."""
+    for d in reversed(rows):
+        if d.answer:
+            return d.answer[-1]["say"]
+    return ""
 
 
 def checkpoint_on_screen(db: Session, session_id: str, checkpoint_idx: int, question_idx: int, q: dict) -> str:
@@ -180,6 +200,8 @@ async def classify(
         return Classification(intent="continue", question=transcript)
     user = routing_prompt(db, sess, chapter_idx, at_ms, thread, transcript, on_screen)
     cls = await llm.complete_json(VIDEO_CLASSIFY_SYSTEM, user, Classification, temperature=0.2, model=settings.routing_deployment)
+    if cls.intent == "unclear" or not cls.question.strip() or META_QUESTION.match(cls.question):
+        cls = cls.model_copy(update={"question": transcript})
     if on_screen and cls.intent not in KEEP_DURING_CHECKPOINT:
         # On topic after a wrong checkpoint answer: re-explain now
         cls = cls.model_copy(update={"intent": "confused"})
@@ -250,11 +272,12 @@ async def ask_video_question(
             answer_when = "now"
             cls = cls.model_copy(update={"target_scene_idx": None, "callback": None})
         # The cap applies only to answerable doubts; a capped one is still stored, with no turn used
-        capped = answer_when == "now" and not can_follow_up(thread.turns, policy)
+        uses_turn = cls.intent not in NO_TURN_INTENTS
+        capped = answer_when == "now" and uses_turn and not can_follow_up(thread.turns, policy)
         if capped:
             answer_when = "none"
         turn = thread.turns
-        if answer_when == "now":
+        if answer_when == "now" and uses_turn:
             thread.turns += 1
 
         doubt = Doubt(
@@ -262,6 +285,7 @@ async def ask_video_question(
             scene_idx=chapter_idx,
             step_idx=0,
             question=cls.question or transcript,
+            said=transcript,
             intent=cls.intent,
             target_scene_idx=cls.target_scene_idx,
             callback=cls.callback,
@@ -399,13 +423,38 @@ def checkpoint_context(db: Session, doubt: Doubt, lesson: Lesson) -> str:
     )
 
 
+PASSAGE_START = re.compile(r"^(\d+):(\d\d)")
+
+
+def render_marked(passages: list, at_ms: int | None) -> str:
+    """`render`, with transcript passages that start after the pause marked as not watched yet."""
+    out = []
+    for p in passages:
+        block = render([p])
+        m = PASSAGE_START.match(p.ref) if p.source == "transcript" and at_ms is not None else None
+        if m and (int(m.group(1)) * 60 + int(m.group(2))) * 1000 >= at_ms:
+            head, _, body = block.partition("\n")
+            block = f"{head}\n(after the pause: the student has not watched this yet)\n{body}"
+        out.append(block)
+    return "\n\n".join(out)
+
+
+def chapter_list(lesson: Lesson, at_ms: int) -> str:
+    """Every chapter with its summary, marked watched / playing / not watched yet."""
+    lines = []
+    for c in lesson.chapters:
+        state = "watched" if c.end_ms <= at_ms else "playing at the pause" if c.start_ms <= at_ms else "not watched yet"
+        lines.append(f"- Chapter {c.idx} [{mmss(c.start_ms)}-{mmss(c.end_ms)}, {state}]: {c.title}. {c.summary}")
+    return "Lecture chapters:\n" + "\n".join(lines) + "\n\n"
+
+
 async def answer_context(lesson: Lesson, doubt: Doubt) -> str:
     """Passages from the configured sources; the raw transcript if the context service fails."""
     try:
         passages = await get_context_service().gather(
             ContextQuery(lesson.id, doubt.question, doubt.at_ms, doubt.scene_idx)
         )
-        text = render(passages)
+        text = render_marked(passages, doubt.at_ms)
     except Exception as e:  # noqa: BLE001 - answer from the transcript rather than not at all
         log_event(
             "context.failed", level="warn", session_id=doubt.session_id, doubt_id=doubt.id, error=f"{type(e).__name__}: {e}"[:300]
@@ -421,10 +470,13 @@ async def video_answer_prompt(db: Session, doubt: Doubt, sess: TutorSession) -> 
     return (
         f"Student: {guest.name}, class {guest.class_level or 'unknown'}, "
         f"weak concepts so far: {', '.join(guest.weak_concepts) or 'none'}\n"
-        f"Doubt intent: {doubt.intent}\nDoubt: {doubt.question}\n\n"
+        f"Doubt intent: {doubt.intent}\nDoubt: {doubt.question}\n"
+        + (f'Student said (speech-to-text): "{doubt.said}"\n' if doubt.said and doubt.said != doubt.question else "")
+        + f"Turn in this pause: {doubt.turn}\n\n"
         f"Current chapter {doubt.scene_idx}: {chapter.title if chapter else lesson.title}\n"
         f"Summary: {chapter.summary if chapter else ''}\n"
         f"Video paused at {mmss(doubt.at_ms or 0)}\n\n"
+        f"{chapter_list(lesson, doubt.at_ms or 0)}"
         f"{thread_history(db, doubt.thread_id, before=doubt)}"
         f"{checkpoint_context(db, doubt, lesson)}"
         f"Lecture context:\n{await answer_context(lesson, doubt)}"

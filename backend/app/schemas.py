@@ -405,7 +405,9 @@ def leaks_answer(hint: str, correct_option: str) -> bool:
 
 
 Intent = Literal[
-    "covered_later", "not_covered", "prerequisite", "confused", "repeat", "continue", "off_topic", "unclear", "clarify"
+    "covered_later", "not_covered", "prerequisite", "confused", "repeat", "continue", "off_topic", "unclear", "clarify",
+    # Video lessons only: the student answers or reacts to the tutor; asks for the lecture so far / its topics
+    "reply", "overview",
 ]
 AnswerWhen = Literal["none", "now", "replay", "step_end", "scene_end", "target_scene"]
 

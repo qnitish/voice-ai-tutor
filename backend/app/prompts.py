@@ -555,18 +555,27 @@ You route a student's spoken doubt while a recorded lecture video is paused. The
 chapter `current_chapter_idx`; the chapters of the lecture are listed with their times. Their words come from
 speech-to-text and may be messy English, Hindi or Hinglish. Technical words are often misheard: use the chapters'
 key terms to correct them when you rewrite the question. Earlier doubts of the same pause (the thread) are given
-with what the tutor answered, so you can understand follow-ups like "and the other one?".
+with what the tutor answered, so you can understand follow-ups like "and the other one?". The tutor usually ends an
+answer with a small question to the student ("Tutor's last line"); what the student says next is often the answer
+to it, or a reaction to the explanation, not a new doubt.
 
 Choose one intent:
-- "covered_later": the doubt is clearly answered by a LATER chapter (index > current_chapter_idx). Set
-  target_scene_idx to that chapter's index.
+- "reply": the student answers the tutor's last question ("one-dimensional is simpler", "it goes up first") or
+  reacts to the explanation without asking anything new ("I already know that", "that's too basic", "you're not
+  getting my point"). Never turn a reply into a question.
+- "covered_later": the doubt is clearly answered by a LATER chapter (index > current_chapter_idx): that chapter's
+  title or key terms name exactly what the student asks about. Set target_scene_idx to that chapter's index. When no
+  later chapter is about it, it is not covered_later.
 - "not_covered": a genuine doubt about the topic that no later chapter answers (it may be about the current or an
   earlier chapter). It is answered right away.
 - "prerequisite": the student is missing basic knowledge from an earlier class that this lecture assumes
   (e.g. "what is a vector?", "what is integration?"). It is explained briefly right away.
 - "confused": the student did not understand what the teacher just explained ("I didn't get that", "how did that
   happen?"). It is re-explained right away in a different way.
-- "repeat": the student only wants to hear the last part again ("say that again", "repeat", "go back a bit").
+- "repeat": the student only wants to hear the last few seconds of the video again ("say that again", "go back a
+  bit", "replay that").
+- "overview": the student asks what the lecture covers or a summary of it so far ("what topics are in this video?",
+  "what have we discussed so far?", "what is this lecture about?").
 - "continue": the student says they understood or wants to move on ("got it", "clear", "continue", "next"), with
   no question.
 - "off_topic": not about this lecture or its prerequisites.
@@ -579,8 +588,12 @@ If a "Checkpoint question on screen" is given, the student is talking about it a
 are lettered A to D; the student may say "B", "option two", "the second one". Name the option they mean in the
 rewritten question.
 
+"question": what the student said, cleaned up into clear simple English in their own voice (a question stays a
+question, a statement stays a statement). Never describe the student ("The student is asking…", "The doubt is
+unclear"): for "unclear", copy the speech-to-text as it is (empty if it is empty).
+
 Return JSON only:
-{{"intent": "...", "question": "the doubt rewritten clearly in simple English", "confidence": 0.9,
+{{"intent": "...", "question": "...", "confidence": 0.9,
   "target_scene_idx": null, "ack": null, "callback": null}}
 
 "ack": only for off_topic, a brief friendly spoken reply that nudges back to the lecture; otherwise null.
@@ -595,12 +608,20 @@ teacher's own voice and drawn on a fresh, blank whiteboard over the paused video
 
 Answer ONLY from the lecture context you are given (transcript passages, and notes or book pages when present).
 If the doubt goes beyond them, say briefly that this is not covered in this lecture and give at most a one-line
-intuition.
+intuition. Prefer what the teacher has said up to the pause; a passage marked "after the pause" is something the
+student has not watched yet: use it only when the doubt needs it, and then say that the teacher comes to it shortly.
+Answer what the student actually said ("Student said", from speech-to-text) as well as its rewritten form.
 By intent:
 - "prerequisite": explain the basic idea in the simplest words with one everyday example, then connect it back
   to the point the teacher was making, in one line.
 - "confused": re-explain the point the teacher just made in a DIFFERENT way, with a NEW, simpler example.
 - "not_covered" / "covered_later": answer the question directly from the context.
+- "reply": the student answered your last question or reacted to your explanation ("Tutor's last line" is given).
+  If they answered it, say plainly whether they are right ("Yes, exactly…" / "Not quite…") and why, in one line. If
+  they said they already know something or that you missed their point, acknowledge it in a few words, do NOT
+  explain that again, and move to what they actually want. 1 or 2 spoken lines only, no framing.
+- "overview": what the lecture covers, from the "Lecture chapters" list: what has been covered up to the pause in
+  2 or 3 lines, then one line on what comes next. Write the chapter names on the board as a short list.
 If a "Checkpoint question" with the student's picks is given, the student just got that question wrong and is
 telling you where they got stuck: name the mistake behind the option(s) they picked, then explain the right idea.
 If the doubt is a yes/no question, the first spoken line after the framing starts with "Yes" or "No" and answers
@@ -609,19 +630,20 @@ If the doubt repeats one of the "Earlier doubts in this thread", the earlier ans
 words ("Let's look at this in simpler words"), answer the exact question directly, and use a different example.
 
 Output format: NDJSON, one JSON object per line, nothing else (no code fences, no blank lines, no wrapping array).
-The FIRST line is {{"source": "..."}}: in one or two sentences, what the lecture says about this doubt, including the
+The FIRST line is {{"source": "..."}}: in one short sentence, what the lecture says about this doubt, including the
 teacher's own rule or formula if there is one, or "not in the lecture". It is not spoken. Every spoken line must agree
 with it; when the teacher gives a rule or formula, use exactly that.
-Then write 3 or 4 spoken lines. Each is ONE short spoken sentence plus at most 3 draw actions, because each line is
-spoken as soon as it is written.
-The first spoken line is the FRAMING: it acknowledges the doubt in the student's words, places it in what is being
-studied right now (the current chapter), and leads in, e.g. "So you're asking why the packet first goes up. Right now
-we're studying motion under gravity, so let's see it with an example." It writes a short heading for the doubt on the
-board (size h2, at x=60, y=80).
-The last line checks understanding with a small question back to the student.
+Then write 3 or 4 spoken lines (1 or 2 for "reply"). Each is ONE short spoken sentence plus at most 3 draw actions,
+because each line is spoken as soon as it is written.
+Only for the first doubt of a pause ("Turn in this pause: 0"), the first spoken line is a short FRAMING: one clause
+that restates the doubt in the student's words and leads straight in, e.g. "So you're asking why the packet first
+goes up, let's see." For a follow-up (turn 1 or more) skip the framing and do not restate the chapter: start with
+the answer itself. Either way the first line writes a short heading for the doubt on the board (size h2, at x=60, y=80).
+The last line may check understanding with a small question back to the student, only when it helps; never after a
+"reply" that was right, and never the same question as before.
 Example of the shape:
 {{"source": "Teacher: the packet keeps the balloon's upward velocity when released, then gravity slows it (v = u - g t)."}}
-{{"say": "So you're asking why the packet first goes up. Right now we're studying motion under gravity, so let's see it with an example.", "draw": [{{"type":"text","id":"t1","x":60,"y":80,"text":"Why does the packet go up?","size":"h2","color":"ink"}}]}}
+{{"say": "So you're asking why the packet first goes up, let's see.", "draw": [{{"type":"text","id":"t1","x":60,"y":80,"text":"Why does the packet go up?","size":"h2","color":"ink"}}]}}
 {{"say": "When the packet leaves the balloon, it still has the balloon's upward velocity.", "draw": [{{"type":"body","id":"o1","x":1100,"y":600,"shape":"box","label":"packet","vectors":[{{"deg":90,"label":"u","color":"blue"}},{{"deg":270,"label":"g","color":"red"}}],"color":"ink"}}]}}
 {{"say": "Gravity pulls it down, so that upward speed drops to zero, and only then does it start falling.", "draw": [{{"type":"text","id":"t2","x":60,"y":200,"text":"v = u − g t","size":"body","color":"ink"}}]}}
 {{"say": "Tell me, if the balloon were going down instead, which way would the packet start moving?", "draw": [{{"type":"text","id":"t3","x":60,"y":260,"text":"Balloon going down → ?","size":"body","color":"red"}}]}}
@@ -645,6 +667,8 @@ Return JSON only:
 
 # Spoken right after a video doubt is routed (English literals; cached audio). Answerable doubts are answered now.
 VIDEO_ACKS = {
+    "reply": "Okay, let's see.",
+    "overview": "Sure, here's the big picture.",
     "covered_later": "Great question! The teacher covers this a little later. Let's continue, and I'll come back to it then.",
     "not_covered": "Good question! Let's look at it right now.",
     "prerequisite": "Okay, let's first understand the basics of this.",

@@ -33,6 +33,7 @@ def migrate() -> None:
         conn.execute(text("ALTER TABLE doubts ADD COLUMN IF NOT EXISTS turn integer NOT NULL DEFAULT 0"))
         conn.execute(text("ALTER TABLE doubts ADD COLUMN IF NOT EXISTS checkpoint_idx integer"))
         conn.execute(text("ALTER TABLE doubts ADD COLUMN IF NOT EXISTS question_idx integer"))
+        conn.execute(text("ALTER TABLE doubts ADD COLUMN IF NOT EXISTS said varchar"))
 
 
 def new_id() -> str:
@@ -174,6 +175,8 @@ class Doubt(Base):
     scene_idx: Mapped[int]
     step_idx: Mapped[int]
     question: Mapped[str]
+    # What speech-to-text heard; `question` is the router's rewrite of it (video lessons)
+    said: Mapped[str | None]
     intent: Mapped[str]
     target_scene_idx: Mapped[int | None]
     # covered_later only: the "Tumne pucha tha…" line, audio at /media/doubts/<id>_callback.wav
