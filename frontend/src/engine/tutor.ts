@@ -45,7 +45,7 @@ export function schedule(draw: DrawAction[], durationMs: number): TimedAction[] 
 }
 
 /** The layout measures text, so the board fonts must be loaded before anything is laid out. */
-async function loadBoardFonts() {
+export async function loadBoardFonts() {
   try {
     await Promise.all(
       Object.values(FONT_SIZE).flatMap((px) => [400, 700].map((w) => document.fonts.load(`${w} ${px}px ${FONT_STACK}`, 'Aa∮∂₂'))),
