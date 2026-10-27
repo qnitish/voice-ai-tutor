@@ -267,6 +267,17 @@ def chapter_text(idx: int, c: dict) -> str:
     )
 
 
+def section(cp: dict, chapters: list[dict]) -> tuple[str, float, float]:
+    """The part of the video a checkpoint covers: every chapter since the previous checkpoint.
+
+    Returns the chapters' descriptions and the section's start and end time. Checkpoints prepared before
+    `from_chapter` existed cover their own chapter only.
+    """
+    first, last = cp.get("from_chapter", cp["chapter_idx"]), cp["chapter_idx"]
+    text = "\n\n".join(chapter_text(i, chapters[i]) for i in range(first, last + 1))
+    return text, chapters[first]["start_s"], chapters[last]["end_s"]
+
+
 async def make_chapters(transcript: str, duration_s: float) -> dict:
     draft = await llm.prep_json(CHAPTERS_SYSTEM, f"Lecture length: {mmss(duration_s)}\n\nTranscript:\n{transcript}", ChaptersDraft)
     chapters = fix_chapters([c.model_dump() for c in draft.chapters], duration_s)
@@ -278,13 +289,14 @@ async def make_chapters(transcript: str, duration_s: float) -> dict:
 async def make_questions(
     cp: dict, chapters: list[dict], transcript: str, voice: str | None = None, language: str = "english"
 ) -> CheckpointDraft:
-    """The questions and intro line of one checkpoint, about its chapter only."""
-    c = chapters[cp["chapter_idx"]]
+    """The questions and intro line of one checkpoint, about the section of the video it covers only."""
+    text, start_s, end_s = section(cp, chapters)
     n = cp["questions"]
     user = (
-        f"{chapter_text(cp['chapter_idx'], c)}\n\nWrite {n} question(s). Why this checkpoint: {cp['reason'] or 'not given'}\n\n"
-        f"Transcript of this chapter:\n{transcript_between(transcript, c['start_s'], c['end_s'])}\n\n"
-        f"Whole lecture transcript (context only; ask only about this chapter):\n{transcript}"
+        f"The section the student just watched ({mmss(start_s)}-{mmss(end_s)}):\n{text}\n\n"
+        f"Write {n} question(s). Why this checkpoint: {cp['reason'] or 'not given'}\n\n"
+        f"Transcript of this section:\n{transcript_between(transcript, start_s, end_s)}\n\n"
+        f"Whole lecture transcript (context only; ask only about this section):\n{transcript}"
     )
     system = for_gender(CHECKPOINT_QUESTIONS_SYSTEM, get_voice(voice).gender, language)
     draft = await llm.prep_json(system, user, CheckpointDraft)
@@ -311,6 +323,9 @@ async def make_checkpoints(
     )
     if len(planned) < len(plan.plan):
         log.info("checkpoints: kept %d of the %d planned", len(planned), len(plan.plan))
+    # Each checkpoint asks about everything watched since the previous one, not only its last chapter
+    for prev, cp in zip([None, *planned], planned):
+        cp["from_chapter"] = prev["chapter_idx"] + 1 if prev else 0
     silences = detect_silences(video)
     log.info("checkpoints: %d silences in the video", len(silences))
     for cp in planned:
@@ -326,16 +341,17 @@ async def make_checkpoints(
 
 
 async def review_question(
-    c: dict, idx: int, q: CheckQuestion, transcript: str, voice: str | None = None, language: str = "english"
+    cp: dict, chapters: list[dict], q: CheckQuestion, transcript: str, voice: str | None = None, language: str = "english"
 ) -> dict:
     """Fact-check one checkpoint question against the lecture; returns the (corrected) question."""
+    text, start_s, end_s = section(cp, chapters)
     user = (
-        f"{chapter_text(idx, c)}\n\n{check_text(q)}\nSpoken form: {q.say}\n\n"
+        f"The section the question is about ({mmss(start_s)}-{mmss(end_s)}):\n{text}\n\n{check_text(q)}\nSpoken form: {q.say}\n\n"
         f"Question as JSON: {q.model_dump_json()}\n\nLecture transcript:\n{transcript}"
     )
     review = await llm.prep_json(for_gender(CHECKPOINT_REVIEW_SYSTEM, get_voice(voice).gender, language), user, CheckReview)
     for issue in review.issues:
-        log.warning("review %s / %s: %s", c["title"], q.concept, issue)
+        log.warning("review %s / %s: %s", chapters[cp["chapter_idx"]]["title"], q.concept, issue)
     return review.model_dump()
 
 
@@ -345,17 +361,15 @@ async def review_checkpoints(
     sem = asyncio.Semaphore(4)
 
     async def one(cp: dict) -> list[dict]:
-        c = chapters[cp["chapter_idx"]]
         qs = [CheckQuestion.model_validate(q) for q in cp["questions"]]
-        return list(
-            await asyncio.gather(*(bounded(sem, review_question(c, cp["chapter_idx"], q, transcript, voice, language)) for q in qs))
-        )
+        return list(await asyncio.gather(*(bounded(sem, review_question(cp, chapters, q, transcript, voice, language)) for q in qs)))
 
     return list(await asyncio.gather(*(one(cp) for cp in checkpoints)))
 
 
 def clamp_replay(from_s: float, to_s: float, c: dict) -> dict:
-    """The replay range inside its chapter and at most REPLAY_MAX_S long; the chapter start if the LLM's is unusable."""
+    """The replay range inside `c` (a chapter or section with start_s/end_s) and at most REPLAY_MAX_S long;
+    its start if the LLM's range is unusable."""
     start = max(c["start_s"], from_s)
     end = min(c["end_s"], to_s)
     if end <= start:
@@ -366,12 +380,14 @@ def clamp_replay(from_s: float, to_s: float, c: dict) -> dict:
 
 
 async def make_remedy(
-    c: dict, idx: int, q: CheckQuestion, transcript: str, voice: str | None = None, language: str = "english"
+    cp: dict, chapters: list[dict], q: CheckQuestion, transcript: str, voice: str | None = None, language: str = "english"
 ) -> dict:
     """Hints per wrong option and the teacher's replay range for one checkpoint question."""
+    text, start_s, end_s = section(cp, chapters)
+    c = {"title": chapters[cp["chapter_idx"]]["title"], "start_s": start_s, "end_s": end_s}
     user = (
-        f"{chapter_text(idx, c)}\n\n{check_text(q)}\n\n"
-        f"Transcript of this chapter:\n{transcript_between(transcript, c['start_s'], c['end_s'])}"
+        f"The section the question is about ({mmss(start_s)}-{mmss(end_s)}):\n{text}\n\n{check_text(q)}\n\n"
+        f"Transcript of this section:\n{transcript_between(transcript, start_s, end_s)}"
     )
     draft = await llm.prep_json(for_gender(CHECKPOINT_REMEDY_SYSTEM, get_voice(voice).gender, language), user, CheckpointRemedyDraft)
     # Last line of defence: a hint quoting the right answer would make the retry meaningless
@@ -391,9 +407,8 @@ async def remediate(
     sem = asyncio.Semaphore(4)
 
     async def one(cp: dict) -> list[dict]:
-        c = chapters[cp["chapter_idx"]]
         qs = [CheckQuestion.model_validate(q) for q in cp["questions"]]
-        return list(await asyncio.gather(*(bounded(sem, make_remedy(c, cp["chapter_idx"], q, transcript, voice, language)) for q in qs)))
+        return list(await asyncio.gather(*(bounded(sem, make_remedy(cp, chapters, q, transcript, voice, language)) for q in qs)))
 
     return list(await asyncio.gather(*(one(cp) for cp in checkpoints)))
 

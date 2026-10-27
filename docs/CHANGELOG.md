@@ -13,6 +13,17 @@ Design docs:
 
 ---
 
+## 2026-10-27 (later): Pluggable LLM provider, Claude by default; checkpoint questions v2 (branch `feature/video-lesson`)
+
+- Every LLM call now goes through `providers.get_llm()` (`LLM_PROVIDER`: `anthropic`, `azure`, `openai`, `deepseek`,
+  `gemini`), the same pattern as STT/TTS. Default: Claude Opus 5.5 for answers (effort low) and prep (effort high),
+  Claude Haiku 5.5 for doubt routing. Azure credentials were removed from `.env`.
+- Video checkpoints ask about the whole section since the previous pause (`from_chapter`, `prep/video.section`), not
+  only its last chapter; the question and review prompts reject "what happens next" / "advantage of the method"
+  recall questions. `lecture-05-video` republished as a new version with the regenerated questions.
+
+---
+
 ## 2026-10-27: Video lesson mode (branch `feature/video-lesson`, not merged to main)
 
 Spec: `docs/plan/video-lesson-spec.md`. Built in parallel by agents in worktrees, each piece merged on the branch.

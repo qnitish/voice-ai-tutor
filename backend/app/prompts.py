@@ -461,16 +461,23 @@ Return JSON only:
 "after_chapter" is the chapter index as given."""
 
 CHECKPOINT_QUESTIONS_SYSTEM = f"""\
-You write the questions for one checkpoint of a recorded lecture: the video pauses right after a chapter and the
-tutor asks 1 to 3 multiple-choice questions about what the teacher explained in THAT chapter. You get the chapter
-(title, summary, key terms, common misconceptions), how many questions to write, the transcript of the chapter and
-the whole lecture transcript for context.
+You write the questions for one checkpoint of a recorded lecture: the video pauses and the tutor asks 1 to 3
+multiple-choice questions about the section the student has just watched, i.e. every chapter since the previous
+pause. You get those chapters (title, summary, key terms, common misconceptions), how many questions to write, the
+transcript of the section and the whole lecture transcript for context.
 
 Rules for the questions:
-- Test understanding of what the teacher taught in this chapter, in the teacher's own terms and conventions: the
-  rule applied to a new situation, the reason behind a step, a sign or a direction, a quick calculation from the
-  lecture's formula with small numbers. Not recall of the teacher's words, and nothing the chapter does not cover,
-  even if you know it. Double-check the physics of the option you mark correct against the transcript.
+- Ask about the subject the teacher is teaching (the physics, chemistry, maths...), in the teacher's own terms and
+  conventions, never about the lecture itself. Good questions: the section's rule or result applied to a new
+  situation (different objects or small numbers), a sign or a direction under the teacher's convention, the reason
+  a result holds, a quick calculation with the section's formula, a misconception the teacher corrected.
+- Never ask about the order of steps in the teacher's working ("what happens after solving...", "what is the key
+  step..."), the teacher's opinion of a method ("what is the advantage of..."), or anything a student could answer
+  by remembering the teacher's words without understanding the idea.
+- Cover the section's main ideas: the first question is on its central idea or result; with several chapters,
+  spread the questions over them instead of asking only about the last one.
+- Only what this section teaches: nothing from later in the lecture, and no topic the lecture does not cover, even
+  if you know it. Double-check the subject matter of the option you mark correct against the transcript.
 - Exactly 4 options, exactly one of them correct. The wrong options are plausible: each is what a student makes
   with a real mistake (a misconception from the list, a sign error, a mixed-up formula, forgetting the initial
   velocity), never something obviously silly. Options are short and parallel in form; no "all of the above".
@@ -499,7 +506,9 @@ You get the lecture transcript (speech-to-text, may have recognition errors), th
 the multiple-choice question with the index of the option marked correct. Check:
 1. The marked option is really correct, by the subject's standard rules AND consistent with what the teacher taught.
 2. Exactly one option is correct; no other option is also defensible.
-3. The question tests something the teacher actually explains in this chapter, not only later in the lecture.
+3. The question tests something the teacher actually explains in this section, not only later in the lecture, and
+   it tests understanding of the subject: a question about the order of the teacher's steps or the teacher's opinion
+   of a method ("what happens after...", "what is the advantage of...") is an issue; replace it.
 4. The explanation is true.
 5. "say" does not read the options out, name an option letter or position, or give the answer away.
 
@@ -507,7 +516,7 @@ Return JSON only:
 {{"issues": ["each problem found, empty if none"],
   "check_question": {{the question with the same keys, unchanged if it has no issues, otherwise corrected: fix the
                      options, correct_index, say or explanation, or replace it with a question on what this
-                     chapter teaches}}}}
+                     section teaches}}}}
 
 The question's "say" follows these rules:
 {SPEECH_RULES}"""
@@ -515,8 +524,8 @@ The question's "say" follows these rules:
 CHECKPOINT_REMEDY_SYSTEM = f"""\
 A student answered a checkpoint question wrong while watching a recorded lecture. You write the hint the tutor
 speaks for each wrong option, and pick the part of the video to replay so the teacher explains the idea again in
-the teacher's own words. You get the chapter (title, summary, common misconceptions, start and end times), its
-transcript with [mm:ss] time marks, and the question with its options and the correct option index.
+the teacher's own words. You get the section of the video the question is about (its chapters with title,
+summary, common misconceptions, start and end times), its transcript with [mm:ss] time marks, and the question with its options and the correct option index.
 
 Return JSON only:
 {{"why_wrong": [{{"option": 1, "hint": "..."}}],
@@ -527,7 +536,7 @@ Return JSON only:
   pick ("Lagta hai tumne socha ki ...") and gently why it does not hold. Never name the correct option, never use
   its words, never mention an option letter or position, and never state the fact that directly gives it away; the
   student must still think. End with "Ek baar phir socho."
-- "replay_from_s" / "replay_to_s": the stretch of the chapter where the teacher explains the concept the question
+- "replay_from_s" / "replay_to_s": the stretch of the section where the teacher explains the concept the question
   tests, 30 to 90 seconds long: from where the teacher starts that explanation (estimate it from the time marks and
   the position of the words in the chunk) to where the point is made.
 
