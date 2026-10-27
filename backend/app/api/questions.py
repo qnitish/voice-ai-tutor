@@ -2,6 +2,7 @@
 
 import asyncio
 import json
+import time
 
 from fastapi import APIRouter, BackgroundTasks, Depends, Form, HTTPException, UploadFile
 from fastapi.responses import StreamingResponse
@@ -11,15 +12,18 @@ from sqlalchemy.orm import Session
 
 from app import llm
 from app.api.sessions import callback_path, callback_spoken, get_session, touch, update_mastery
+from app.api.video_doubts import video_answer_prompt
 from app.audio import STT_RATE, speak, speak_cached, to_wav
 from app.config import settings
-from app.db import CheckAttempt, CheckResult, Doubt, Lesson, SessionLocal, TutorSession, get_db
+from app.db import CheckAttempt, CheckResult, Doubt, DoubtThread, Lesson, SessionLocal, TutorSession, get_db
 from app.language import current_stt_language
 from app.progress import doubt_mastery
-from app.prompts import ANSWER_SYSTEM, CLASSIFY_SYSTEM, FIXED_ACKS, clarify_ack, for_gender, line_for
+from app.prompts import ANSWER_SYSTEM, CLASSIFY_SYSTEM, FIXED_ACKS, VIDEO_ANSWER_SYSTEM, clarify_ack, for_gender, line_for
 from app.providers import get_stt
 from app.routing import is_affirmative
 from app.schemas import Classification, QuestionOut, Spoken, StepDraft, clean_draw
+from app.services.threads import schedule_recap
+from app.telemetry import log_event
 from app.voices import get_voice
 
 router = APIRouter(prefix="/api")
@@ -276,9 +280,16 @@ async def stream_answer(doubt_id: str):
             raise HTTPException(404, "Doubt not found")
         cached = doubt.answer
         sess = db.get(TutorSession, doubt.session_id)
+        session_id, thread_id = sess.id, doubt.thread_id
         voice = sess.lesson.voice
-        system = for_gender(ANSWER_SYSTEM, get_voice(voice).gender, sess.lesson.language)
-        prompt = None if cached else answer_prompt(db, doubt, sess)
+        video = sess.lesson.kind == "video"
+        if video:
+            # Grounded in the chapters and the context service, not in scenes
+            system = VIDEO_ANSWER_SYSTEM
+            prompt = None if cached else await video_answer_prompt(db, doubt, sess)
+        else:
+            system = for_gender(ANSWER_SYSTEM, get_voice(voice).gender, sess.lesson.language)
+            prompt = None if cached else answer_prompt(db, doubt, sess)
 
     async def generate():
         if cached:
@@ -303,16 +314,34 @@ async def stream_answer(doubt_id: str):
                 await queue.put(None)
 
         rows: list[dict] = []
+        started = time.perf_counter()
+        ids = dict(session_id=session_id, thread_id=thread_id, doubt_id=doubt_id)
         producer = asyncio.create_task(produce())
         while (item := await queue.get()) is not None:
             step, task = item
             spoken = await task
             row = {"say": step.say, "draw": clean_draw(step.draw), "audio_url": spoken.audio_url, "duration_ms": spoken.duration_ms}
             rows.append(row)
+            if len(rows) == 1:
+                log_event("answer.first_line", ms=int((time.perf_counter() - started) * 1000), **ids)
             yield json.dumps(row, ensure_ascii=False) + "\n"
-        await producer
+        try:
+            await producer
+        except Exception as e:  # noqa: BLE001 - logged, then the stream ends as before
+            log_event("answer.failed", level="error", error=f"{type(e).__name__}: {e}"[:300], **ids)
+            raise
+        log_event("answer.done", ms=int((time.perf_counter() - started) * 1000), lines=len(rows), **ids)
 
+        if video and not rows:
+            return  # nothing to replay; the player abandons the thread with reason "error"
         with SessionLocal.begin() as db:
             db.get(Doubt, doubt_id).answer = rows
+            if video and thread_id:
+                # First store only (cached replays return above): the thread now has this much more audio
+                thread = db.get(DoubtThread, thread_id)
+                if thread:
+                    thread.audio_ms += sum(r["duration_ms"] for r in rows)
+        if video and thread_id:
+            schedule_recap(thread_id)
 
     return StreamingResponse(generate(), media_type="application/x-ndjson")
