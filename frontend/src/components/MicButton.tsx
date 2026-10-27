@@ -3,7 +3,7 @@ import { useEffect, useRef, useState } from 'react'
 import { toast } from 'sonner'
 
 import { Button } from '@/components/ui/button'
-import type { Tutor } from '@/engine/tutor'
+import type { MicHost, MicState } from '@/engine/host'
 import { pressKind, rms, SilenceDetector } from '@/engine/vad'
 import { cn } from '@/lib/utils'
 import { t } from '@/lib/i18n'
@@ -18,7 +18,8 @@ const VAD_INTERVAL_MS = 50
  * Ask a doubt by voice. A quick tap starts tap-to-talk, which stops by itself when the
  * student goes quiet (or on a second tap). Holding the button (or Space) is push-to-talk.
  */
-export function MicButton({ tutor }: { tutor: Tutor }) {
+/** `state` overrides the scene player's mic state (the video page passes its own). */
+export function MicButton({ tutor, state }: { tutor: MicHost; state?: MicState }) {
   const mode = usePlayer((s) => s.mode)
   const check = usePlayer((s) => s.check)
   const lesson = usePlayer((s) => s.lesson)
@@ -33,11 +34,13 @@ export function MicButton({ tutor }: { tutor: Tutor }) {
   const vadTimer = useRef<number>(0)
   const audioCtx = useRef<AudioContext | null>(null)
   const [tapMode, setTapMode] = useState(false)
-  const listening = mode === 'listening'
-  const thinking = mode === 'thinking'
-  const enabled = check
-    ? mode === 'check' && check.followup && !check.busy
-    : mode === 'playing' || mode === 'paused' || mode === 'answering'
+  const listening = state ? state.listening : mode === 'listening'
+  const thinking = state ? state.thinking : mode === 'thinking'
+  const enabled = state
+    ? state.enabled
+    : check
+      ? mode === 'check' && check.followup && !check.busy
+      : mode === 'playing' || mode === 'paused' || mode === 'answering'
 
   /** Watch the mic level; in tap mode, end the recording once the student stops talking. */
   function watchSilence(stream: MediaStream) {

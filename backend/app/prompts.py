@@ -421,3 +421,11 @@ ENGLISH_LINES = {
     FILLERS[2]: "One second, let me think.",
     FILLERS[3]: "Yes, go ahead, I'm listening.",
 }
+
+
+# ---- Video lessons: prep (chapters, checkpoints, checkpoint remedy) ----
+# Owned by app/prep/video.py; see docs/plan/video-lesson-spec.md
+
+
+# ---- Video lessons: live doubts (routing, answers, thread lines, recap) ----
+# Owned by app/services/threads.py and app/api/video_doubts.py; see docs/plan/video-lesson-spec.md

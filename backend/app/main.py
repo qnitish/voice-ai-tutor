@@ -3,7 +3,7 @@ from contextlib import asynccontextmanager
 from fastapi import FastAPI
 from fastapi.staticfiles import StaticFiles
 
-from app.api import lessons, questions, sessions
+from app.api import events, lessons, questions, sessions, video, video_doubts
 from app.config import settings
 from app.db import migrate
 
@@ -18,6 +18,9 @@ app = FastAPI(title="Voice Tutor", lifespan=lifespan)
 app.include_router(lessons.router)
 app.include_router(sessions.router)
 app.include_router(questions.router)
+app.include_router(video.router)
+app.include_router(video_doubts.router)
+app.include_router(events.router)
 
 settings.media_dir.mkdir(parents=True, exist_ok=True)
 app.mount("/media", StaticFiles(directory=settings.media_dir), name="media")

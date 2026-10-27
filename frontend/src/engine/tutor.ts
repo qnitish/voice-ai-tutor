@@ -5,6 +5,7 @@
  */
 import { FADE_MS, fadeTo } from '@/engine/fade'
 import { FONT_SIZE, FONT_STACK } from '@/engine/geometry'
+import type { MicHost } from '@/engine/host'
 import { layoutScene, layoutStep } from '@/engine/layout'
 import { twinSlot, wrongNext } from '@/engine/remedy'
 import type { Restored } from '@/engine/restore'
@@ -71,7 +72,7 @@ export interface StartAt {
   restored?: Restored
 }
 
-export class Tutor {
+export class Tutor implements MicHost {
   private main = new Audio()
   /** Fillers, acks, feedback, bridges and "now" answers play here while the main track is held. */
   private voice = new Audio()

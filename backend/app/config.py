@@ -43,6 +43,30 @@ class Settings(BaseSettings):
     # Gender of the default voice; prompts and fixed lines use matching first-person verbs
     tutor_gender: str = "female"
 
+    # ---- Video lessons (docs/plan/video-lesson-spec.md) ----
+    # Doubt threads: follow-up turns after the first answer, and when a thread ends with a recap
+    video_max_followups: int = 3
+    video_recap_after_turns: int = 2  # answered doubts in the thread (2 = at least one follow-up)
+    video_recap_after_seconds: int = 45  # spoken answer audio in the thread
+    # Resume after a doubt or checkpoint this far before where the video was paused (not before the chapter start)
+    video_rewind_ms: int = 3000
+    # A "Got it?" prompt left unanswered this long ends the thread and the video resumes
+    video_thread_idle_s: int = 20
+    # Checkpoint planning in prep
+    checkpoint_min_gap_s: int = 120
+    checkpoint_max: int = 8
+    checkpoint_max_questions: int = 3
+    checkpoint_snap_window_s: float = 8.0  # look this far around a planned time for a silence to pause in
+    # Answer context: comma-separated sources (app.context), e.g. "transcript" or "transcript,documents"
+    context_sources: str = "transcript"
+    context_window_s: int = 180  # transcript before the pause point always included
+    context_max_chars: int = 12000
+    # Retries for external calls (app.telemetry.with_retries); backoff doubles each attempt
+    llm_retries: int = 2
+    tts_retries: int = 2
+    stt_retries: int = 1
+    retry_backoff_s: float = 0.5
+
     @property
     def routing_deployment(self) -> str:
         return self.azure_openai_routing_deployment or self.azure_openai_deployment

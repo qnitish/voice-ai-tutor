@@ -12,7 +12,10 @@ import type {
   SessionState,
   SessionSummary,
   Spoken,
+  Thread,
   TutorSession,
+  VideoQuestionResult,
+  VideoSessionState,
 } from '@/lib/types'
 
 const http = axios.create({ baseURL: '/api' })
@@ -57,6 +60,37 @@ export const api = {
   skipCheck: (sessionId: string, sceneIdx: number, twin: boolean) =>
     http.post(`/sessions/${sessionId}/check/skip`, { scene_idx: sceneIdx, twin }),
   summary: (sessionId: string) => http.post<SessionSummary>(`/sessions/${sessionId}/summary`).then((r) => r.data),
+
+  // ---- Video lessons (docs/plan/video-lesson-spec.md) ----
+  /** threadId: continue that doubt thread (a follow-up); checkpoint: asked from a checkpoint's follow-up prompt */
+  videoQuestion: (sessionId: string, audio: Blob, atMs: number, threadId: string | null = null, checkpoint: { idx: number; question_idx: number } | null = null) => {
+    const form = new FormData()
+    form.append('audio', audio, 'question.webm')
+    form.append('at_ms', String(Math.round(atMs)))
+    if (threadId) form.append('thread_id', threadId)
+    if (checkpoint) {
+      form.append('checkpoint_idx', String(checkpoint.idx))
+      form.append('question_idx', String(checkpoint.question_idx))
+    }
+    return http.post<VideoQuestionResult>(`/sessions/${sessionId}/video/questions`, form).then((r) => r.data)
+  },
+  /** "Got it" (understood) or "Ask another" after an answer */
+  threadReply: (threadId: string, understood: boolean) =>
+    http.post<Thread>(`/threads/${threadId}/reply`, { understood }).then((r) => r.data),
+  /** The "Got it?" prompt went unanswered (policy.idle_ms) or the student left */
+  threadAbandon: (threadId: string) => http.post<Thread>(`/threads/${threadId}/abandon`).then((r) => r.data),
+  saveVideoPosition: (sessionId: string, atMs: number) =>
+    http.post(`/sessions/${sessionId}/video/position`, { at_ms: Math.round(atMs) }),
+  checkpointAnswer: (sessionId: string, checkpointIdx: number, questionIdx: number, chosenIndex: number, kind: 'first' | 'retry' = 'first') =>
+    http
+      .post<CheckResult>(`/sessions/${sessionId}/checkpoints/${checkpointIdx}/answer`, { question_idx: questionIdx, chosen_index: chosenIndex, kind })
+      .then((r) => r.data),
+  checkpointSkip: (sessionId: string, checkpointIdx: number, questionIdx: number) =>
+    http.post(`/sessions/${sessionId}/checkpoints/${checkpointIdx}/skip`, { question_idx: questionIdx }),
+  videoState: (sessionId: string) => http.get<VideoSessionState>(`/sessions/${sessionId}/video/state`).then((r) => r.data),
+  /** Client-side events and errors, stored with the session (app.telemetry) */
+  clientEvent: (event: { session_id?: string | null; thread_id?: string | null; doubt_id?: string | null; kind: string; level?: 'info' | 'warn' | 'error'; data?: Record<string, unknown> }) =>
+    http.post('/events', event).catch(() => {}),
 }
 
 /**

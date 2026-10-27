@@ -454,6 +454,7 @@ class LessonSummaryOut(BaseModel):
     language: str = "hinglish"
     # Shown on the lesson card to tell builds apart: language, voice, build number, prep --label
     tags: list[str] = []
+    kind: Literal["generated", "video"] = "generated"
 
 
 class LessonOut(BaseModel):
@@ -469,6 +470,12 @@ class LessonOut(BaseModel):
     # Which whiteboard draws it: "svg" (default) or "skia" (CanvasKit)
     renderer: str = "svg"
     scenes: list[SceneOut]
+    # Video lessons (kind "video"; scenes is then empty)
+    kind: Literal["generated", "video"] = "generated"
+    video: "VideoOut | None" = None
+    chapters: list["ChapterOut"] = []
+    checkpoints: list["CheckpointOut"] = []
+    policy: "PlayerPolicy | None" = None
 
 
 class GuestIn(BaseModel):
@@ -508,6 +515,8 @@ class Position(BaseModel):
 
 class ResumeOut(Position):
     session_id: str
+    # Video lessons: where to resume playback (scene_idx is then the chapter, step_idx 0)
+    position_ms: int | None = None
 
 
 class MasteryOut(BaseModel):
@@ -610,3 +619,160 @@ class SessionStateOut(BaseModel):
     position: Position | None
     answered_checks: list[int]
     doubts: list[StateDoubt]
+
+
+# ---- Video lessons (docs/plan/video-lesson-spec.md) ----
+
+VideoAnswerWhen = Literal["now", "chapter_end", "target_chapter", "replay", "none"]
+ThreadStatus = Literal["open", "resolved", "capped", "abandoned"]
+
+
+class VideoOut(BaseModel):
+    url: str
+    duration_ms: int
+
+
+class ChapterOut(BaseModel):
+    idx: int
+    topic: str
+    title: str
+    summary: str
+    key_terms: list[str]
+    start_ms: int
+    end_ms: int
+
+
+class ReplayRange(BaseModel):
+    """A stretch of the lecture video, replayed as the teacher's own re-explanation."""
+
+    start_ms: int
+    end_ms: int
+
+
+class ClipOut(BaseModel):
+    """A narrated whiteboard step (same shape as an answer line or a re-teach step)."""
+
+    say: str
+    draw: list[dict] = []
+    audio_url: str
+    duration_ms: int
+
+
+class CheckpointQuestion(BaseModel):
+    """One question of a checkpoint, as stored in checkpoints.questions and sent to the player."""
+
+    question: str
+    say: str
+    audio_url: str
+    duration_ms: int
+    options: list[str] = Field(min_length=2, max_length=4)
+    correct_index: int
+    concept: str
+    explanation: str
+    # After a wrong pick: a hint per option (null for the correct one), one retry, then the re-teach
+    why_wrong: list[Spoken | None] = []
+    replay: ReplayRange | None = None  # the teacher explaining this concept
+    reteach: list[ClipOut] = []  # generated re-explanation, after the replay
+    followup: Spoken | None = None  # "Which part confused you? Ask me, or let's continue."
+
+
+class CheckpointOut(BaseModel):
+    idx: int
+    at_ms: int
+    chapter_idx: int
+    intro: Spoken
+    questions: list[CheckpointQuestion]
+
+
+class PlayerPolicy(BaseModel):
+    """Limits the player follows; from Settings so they can be tuned without a release."""
+
+    max_followups: int
+    recap_after_turns: int
+    recap_after_seconds: int
+    rewind_ms: int
+    idle_ms: int  # unanswered "Got it?" prompt: the thread is abandoned and the video resumes
+
+
+class ThreadOut(BaseModel):
+    id: str
+    status: ThreadStatus
+    turns: int
+    audio_ms: int
+    # Another follow-up is allowed (turns - 1 < max_followups)
+    can_follow_up: bool
+    # Played when the thread ends long enough to need it: "So, we were looking at …"
+    recap: Spoken | None = None
+    # A line to play now, e.g. "Which part is still unclear? Ask me." or the capped "Let's continue…"
+    line: Spoken | None = None
+
+
+class VideoQuestionOut(BaseModel):
+    doubt_id: str
+    thread_id: str
+    turn: int
+    transcript: str
+    question: str
+    intent: Intent
+    answer_when: VideoAnswerWhen
+    target_chapter_idx: int | None = None
+    target_ms: int | None = None  # covered_later: when the callback plays (the target chapter's start)
+    replay_from_ms: int | None = None  # repeat: where the video seeks back to
+    ack: Spoken
+    callback: Spoken | None = None
+    thread: ThreadOut
+
+
+class ThreadReplyIn(BaseModel):
+    understood: bool
+
+
+class VideoPositionIn(BaseModel):
+    at_ms: int = Field(ge=0)
+
+
+class CheckpointAnswerIn(BaseModel):
+    question_idx: int = Field(ge=0)
+    chosen_index: int = Field(ge=0)
+    kind: Literal["first", "retry"] = "first"
+
+
+class CheckpointSkipIn(BaseModel):
+    question_idx: int = Field(ge=0)
+
+
+class AnsweredQuestion(BaseModel):
+    checkpoint_idx: int
+    question_idx: int
+    kind: Literal["first", "retry", "skip"]
+    correct: bool
+
+
+class VideoStateDoubt(BaseModel):
+    id: str
+    at_ms: int
+    thread_id: str | None
+    turn: int
+    question: str
+    intent: str
+    answered: bool
+
+
+class VideoStateOut(BaseModel):
+    session_id: str
+    completed: bool
+    position_ms: int | None
+    answered: list[AnsweredQuestion]
+    doubts: list[VideoStateDoubt]
+
+
+class ClientEventIn(BaseModel):
+    session_id: str | None = None
+    thread_id: str | None = None
+    doubt_id: str | None = None
+    kind: str = Field(min_length=1, max_length=60)
+    level: Literal["info", "warn", "error"] = "info"
+    data: dict = {}
+
+
+LessonOut.model_rebuild()
