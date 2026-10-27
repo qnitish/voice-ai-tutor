@@ -8,6 +8,7 @@ A demo voice tutor for Class 6–12 students (Hinglish). A recorded lecture is t
 whiteboard lesson; the student can interrupt by push-to-talk and the tutor routes the doubt (answer later in
 the lesson, at the end of the scene, right now, or redirect). Design decisions and their reasons are in
 `docs/plan/voice-tutor-decisions.md`; read it before changing the flow.
+`docs/CHANGELOG.md` lists what was built each day (branch, commits, spec to read); add an entry when you finish a feature.
 
 ## Commands
 
