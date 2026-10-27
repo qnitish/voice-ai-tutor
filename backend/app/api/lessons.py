@@ -15,7 +15,8 @@ router = APIRouter(prefix="/api")
 
 def lesson_tags(lesson: Lesson) -> list[str]:
     language = "English" if lesson_language(lesson.language) == "english" else "Hinglish"
-    return [language, describe(lesson.voice), f"v{lesson.version}", *([lesson.label] if lesson.label else [])]
+    renderer = ["Skia"] if lesson.renderer == "skia" else []
+    return [language, describe(lesson.voice), f"v{lesson.version}", *([lesson.label] if lesson.label else []), *renderer]
 
 
 def lesson_out(lesson: Lesson) -> LessonOut:
@@ -27,6 +28,7 @@ def lesson_out(lesson: Lesson) -> LessonOut:
         voice_gender=get_voice(lesson.voice).gender,
         language=lesson.language,
         tags=lesson_tags(lesson),
+        renderer=lesson.renderer,
         scenes=[
             SceneOut(
                 idx=s.idx,

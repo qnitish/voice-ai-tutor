@@ -16,6 +16,7 @@ def publish_lesson(
     voice: str | None = None,
     language: str = "hinglish",
     label: str | None = None,
+    renderer: str = "svg",
 ) -> Lesson:
     """Add a new version of the lesson; earlier versions and their sessions are kept. Caller commits."""
     latest = db.scalar(select(func.max(Lesson.version)).filter_by(slug=slug)) or 0
@@ -23,7 +24,14 @@ def publish_lesson(
     twins = shuffle_checks([(c or {}).get("twin") for c in checks], seed=f"{slug}:twin")
     checks = [{**c, "twin": t} if c and t else c for c, t in zip(checks, twins)]
     lesson = Lesson(
-        slug=slug, version=latest + 1, title=title, transcript=transcript, voice=voice, language=language, label=label
+        slug=slug,
+        version=latest + 1,
+        title=title,
+        transcript=transcript,
+        voice=voice,
+        language=language,
+        label=label,
+        renderer=renderer,
     )
     for si, (scene, check) in enumerate(zip(scenes, checks)):
         lesson.scenes.append(

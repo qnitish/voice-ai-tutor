@@ -91,6 +91,18 @@ export type DrawAction = Placed &
       color: Color
     }
   | { type: 'ground'; id: string; x: number; y: number; w: number; label: string | null }
+  // Moves earlier items by the equations of motion (engine/motion.ts); v in px/s, a in px/s², +y up
+  | {
+      type: 'motion'
+      id: string
+      tracks: { target: string; v: Point; a: Point }[]
+      seconds: number
+      ground: string | null
+      trace: boolean
+      ghosts: number
+      show_velocity: boolean
+      color: Color
+    }
   )
 
 export type Bond = '-' | '=' | '≡'
@@ -150,6 +162,8 @@ export interface Lesson {
   language: string
   /** Language, voice, build ("v2") and build note, shown in the header */
   tags?: string[]
+  /** Which whiteboard draws it: components/Board (SVG) or components/SkiaBoard (CanvasKit) */
+  renderer?: 'svg' | 'skia'
   scenes: Scene[]
 }
 

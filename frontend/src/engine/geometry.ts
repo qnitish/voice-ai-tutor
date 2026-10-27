@@ -20,7 +20,7 @@ export interface Box {
 }
 
 export type Mark =
-  | { k: 'path'; d: string; color: Color; width: number; dashed?: boolean; fill?: Color; fillOpacity?: number; segs: Seg[] }
+  | { k: 'path'; d: string; color: Color; width: number; dashed?: boolean; fill?: Color; fillOpacity?: number; opacity?: number; segs: Seg[] }
   | { k: 'text'; x: number; y: number; text: string; px: number; weight: number; color: Color; anchor: 'start' | 'middle'; label?: boolean }
 
 // ---- text measurement ----
@@ -56,7 +56,7 @@ function poly(points: Point[], closed = false): Seg[] {
 const pathOf = (points: Point[], closed = false) =>
   points.map(([x, y], i) => `${i ? 'L' : 'M'}${x.toFixed(1)},${y.toFixed(1)}`).join(' ') + (closed ? ' Z' : '')
 
-function stroke(points: Point[], color: Color, width = 4, extra: Partial<Extract<Mark, { k: 'path' }>> = {}, closed = false): Mark {
+export function stroke(points: Point[], color: Color, width = 4, extra: Partial<Extract<Mark, { k: 'path' }>> = {}, closed = false): Mark {
   return { k: 'path', d: pathOf(points, closed), color, width, segs: poly(points, closed), ...extra }
 }
 
@@ -69,7 +69,7 @@ function ellipsePoints(cx: number, cy: number, rx: number, ry: number, from = 0,
   return pts
 }
 
-function ring(cx: number, cy: number, r: number, color: Color, width = 4, fill?: Color, fillOpacity = 1): Mark {
+export function ring(cx: number, cy: number, r: number, color: Color, width = 4, fill?: Color, fillOpacity = 1): Mark {
   const pts = ellipsePoints(cx, cy, r, r)
   return {
     k: 'path',
@@ -82,7 +82,7 @@ function ring(cx: number, cy: number, r: number, color: Color, width = 4, fill?:
 }
 
 /** Arrow shaft and head from a to b. */
-function arrowMarks(a: Point, b: Point, color: Color, width = 4, head = 22): Mark[] {
+export function arrowMarks(a: Point, b: Point, color: Color, width = 4, head = 22): Mark[] {
   const ang = Math.atan2(b[1] - a[1], b[0] - a[0])
   const h1: Point = [b[0] - head * Math.cos(ang - 0.45), b[1] - head * Math.sin(ang - 0.45)]
   const h2: Point = [b[0] - head * Math.cos(ang + 0.45), b[1] - head * Math.sin(ang + 0.45)]
@@ -207,10 +207,10 @@ export const labelAt = (s: LabelSlot, pos: Point) => labelMark(s, pos)
 
 // ---- marks per action ----
 
-const CHARGE_R = 20
+export const CHARGE_R = 20
 const VEC_LEN = 110
 const COMPASS_R = 42
-const BODY_R = 22
+export const BODY_R = 22
 
 /** Marks of an action without its placeable labels. */
 export function bodyMarks(a: DrawAction): Mark[] {
@@ -242,6 +242,8 @@ export function bodyMarks(a: DrawAction): Mark[] {
       return marks
     }
     case 'highlight':
+    case 'motion':
+      // Drawn from the items they point at (Board, engine/motion)
       return []
     case 'wire': {
       const [s, e] = [a.start, a.end]

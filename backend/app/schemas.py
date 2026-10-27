@@ -241,6 +241,26 @@ class RingAction(BaseModel):
     color: Color = "ink"
 
 
+class Track(BaseModel):
+    target: str  # id of an item drawn earlier (usually a body)
+    v: Point = (0, 0)  # initial velocity, board px/s, +y up
+    a: Point = (0, 0)  # acceleration, board px/s², +y up (gravity is about (0, -300))
+
+
+class MotionAction(BaseModel):
+    """Moves earlier items by the equations of motion; the board computes every frame."""
+
+    type: Literal["motion"]
+    id: str
+    tracks: list[Track] = Field(min_length=1, max_length=3)  # moved together, e.g. a balloon and its packet
+    seconds: float = Field(default=2, gt=0, le=6)
+    ground: str | None = None  # id of a ground block: a falling item stops when it touches it
+    trace: bool = True  # dashed trail of each track's path
+    ghosts: int = Field(default=0, ge=0, le=8)  # faint snapshots of the first track at equal time steps (strobe photo)
+    show_velocity: bool = False  # live velocity arrow while moving
+    color: Color = "blue"
+
+
 DrawAction = Annotated[
     TextAction
     | LineAction
@@ -261,7 +281,8 @@ DrawAction = Annotated[
     | RingAction
     | CurveAction
     | BodyAction
-    | GroundAction,
+    | GroundAction
+    | MotionAction,
     Field(discriminator="type"),
 ]
 _draw_adapter = TypeAdapter(DrawAction)
@@ -445,6 +466,8 @@ class LessonOut(BaseModel):
     # What the tutor speaks ("hinglish" | "english"); the UI's own lines follow it
     language: str = "hinglish"
     tags: list[str] = []
+    # Which whiteboard draws it: "svg" (default) or "skia" (CanvasKit)
+    renderer: str = "svg"
     scenes: list[SceneOut]
 
 

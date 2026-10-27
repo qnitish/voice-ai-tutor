@@ -90,6 +90,13 @@ thing from lines and circles. Angles are degrees counter-clockwise from +x (0 = 
 - {"type":"curve","id":"g1","points":[[x,y],[x,y],...],"color":"blue","dashed":false,"label":"y = x²"}
   (a smooth curve through 5-15 points in board pixels, e.g. a graph on axes: compute the points from the equation and
   the axes' scale; label goes near the last point)
+- {"type":"motion","id":"m1","tracks":[{"target":"o1","v":[0,0],"a":[0,-300]}],"seconds":2,"ground":"gr1",
+  "trace":true,"ghosts":5,"show_velocity":true,"color":"blue"}
+  (moves items drawn earlier by the equations of motion: v = initial velocity in px/s, a = acceleration in px/s², +y up;
+  gravity is about [0,-300]. Several tracks move together, e.g. a balloon and the packet it carries. "ground" = id of a
+  ground block the item lands on. trace draws each path; ghosts = faint snapshots of the first track (the item being
+  studied) at equal time steps; show_velocity draws a live v arrow on every track. The item stays where the motion ends; a later motion of the same item starts there. Put the motion in
+  the step whose narration describes it, and don't draw static velocity vectors on an item that moves.)
 Use a block only for what it is named for: charge is only an electric charge and magnet only a magnet; every other
 object (a ball, a packet, a balloon) is a body. A wire is an electric wire, never a chemical bond; draw bonds and molecules
 with chain or ring. Never use angle, region or circle to stand for something else (a bond, a molecule, a ring).

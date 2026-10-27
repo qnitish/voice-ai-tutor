@@ -16,15 +16,30 @@ import { type CheckView, initialPlayerState, setPlayer, type TimedAction, update
 
 const get = usePlayer.getState
 
+/** How long an action takes to draw (ms); a motion plays in real time. */
+function drawMs(action: DrawAction): number {
+  if (action.type === 'motion') return action.seconds * 1000
+  const chars = action.type === 'text' ? action.text.length : action.type === 'flow' ? action.items.join('').length : 0
+  return chars ? 400 + chars * 45 : 900
+}
+
 /** Spread a clip's draw actions over its audio so drawing finishes with the speech. */
 export function schedule(draw: DrawAction[], durationMs: number): TimedAction[] {
   if (!draw.length) return []
   const span = Math.max(600, durationMs * 0.85)
-  const slot = span / draw.length
+  if (!draw.some((a) => a.type === 'motion')) {
+    const slot = span / draw.length
+    return draw.map((action, i) => ({ action, start: i * slot, end: i * slot + Math.min(slot * 0.95, drawMs(action)) }))
+  }
+  // Equal slots would cut a motion short: each action gets the time it needs (squeezed to fit), spare time spread out
+  const want = draw.map(drawMs)
+  const scale = Math.min(1, span / want.reduce((a, b) => a + b, 0))
+  const spare = (span - want.reduce((a, b) => a + b, 0) * scale) / draw.length
+  let t = 0
   return draw.map((action, i) => {
-    const chars = action.type === 'text' ? action.text.length : action.type === 'flow' ? action.items.join('').length : 0
-    const want = chars ? 400 + chars * 45 : 900
-    return { action, start: i * slot, end: i * slot + Math.min(slot * 0.95, want) }
+    const out = { action, start: t, end: t + want[i] * scale }
+    t = out.end + spare
+    return out
   })
 }
 

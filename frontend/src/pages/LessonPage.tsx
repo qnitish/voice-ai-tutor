@@ -1,5 +1,5 @@
 import { ArrowLeft, Pause, Play } from 'lucide-react'
-import { useEffect, useState } from 'react'
+import { lazy, Suspense, useEffect, useState } from 'react'
 import { toast } from 'sonner'
 
 import { Board } from '@/components/Board'
@@ -18,6 +18,9 @@ import { api } from '@/lib/api'
 import type { Lesson, Resume } from '@/lib/types'
 import { useGuestStore } from '@/store/guest'
 import { initialPlayerState, setPlayer, usePlayer } from '@/store/player'
+
+// CanvasKit is a few MB of WebAssembly, so only Skia lessons load it
+const SkiaBoard = lazy(() => import('@/components/SkiaBoard'))
 
 export function LessonPage({ slug, onExit }: { slug: string; onExit: () => void }) {
   const guest = useGuestStore((s) => s.guest)
@@ -92,7 +95,13 @@ export function LessonPage({ slug, onExit }: { slug: string; onExit: () => void 
       <div className="grid gap-4 lg:grid-cols-[1fr_300px]">
         <div className="flex flex-col gap-3">
           <div className="relative aspect-video overflow-hidden rounded-xl border bg-white shadow-sm">
-            <Board />
+            {lesson.renderer === 'skia' ? (
+              <Suspense fallback={null}>
+                <SkiaBoard />
+              </Suspense>
+            ) : (
+              <Board />
+            )}
             {layer === 'doubt' && mode !== 'summary' && mode !== 'done' && (
               <Badge className="absolute top-3 right-3 bg-amber-500">Doubt</Badge>
             )}

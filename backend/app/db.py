@@ -23,6 +23,7 @@ def migrate() -> None:
         conn.execute(text("ALTER TABLE lessons ADD COLUMN IF NOT EXISTS voice varchar(60)"))
         conn.execute(text("ALTER TABLE lessons ADD COLUMN IF NOT EXISTS language varchar(20) NOT NULL DEFAULT 'hinglish'"))
         conn.execute(text("ALTER TABLE lessons ADD COLUMN IF NOT EXISTS label varchar(60)"))
+        conn.execute(text("ALTER TABLE lessons ADD COLUMN IF NOT EXISTS renderer varchar(10) NOT NULL DEFAULT 'svg'"))
 
 
 def new_id() -> str:
@@ -50,6 +51,8 @@ class Lesson(Base):
     language: Mapped[str] = mapped_column(String(20), default="hinglish", server_default="hinglish")
     # Free-text build note shown as a tag in the app (e.g. which prompt rules made it); prep --label
     label: Mapped[str | None] = mapped_column(String(60))
+    # Which whiteboard draws it in the app: "svg" or "skia" (CanvasKit); prep --renderer
+    renderer: Mapped[str] = mapped_column(String(10), default="svg", server_default="svg")
     created_at: Mapped[datetime] = mapped_column(server_default=func.now())
     scenes: Mapped[list["Scene"]] = relationship(
         back_populates="lesson", order_by="Scene.idx", cascade="all, delete-orphan"
