@@ -10,30 +10,19 @@ import httpx
 
 from app.config import settings
 from app.language import STT_CODES, current_stt_language
+from app.providers.base import raise_for_status
 from app.voices import current_voice
 
 BASE_URL = "https://api.sarvam.ai"
-RETRY_STATUSES = {429, 500, 502, 503, 504}
 # /voices/clone rejects text over 1000 characters; longer lines are split at sentence ends
 MAX_CHARS = 900
 SENTENCE_END = re.compile(r"(?<=[.?!])\s+")
 
 
 async def _post(client: httpx.AsyncClient, url: str, **kwargs) -> httpx.Response:
-    for attempt in range(5):
-        try:
-            resp = await client.post(url, headers={"api-subscription-key": settings.sarvam_api_key}, **kwargs)
-        except httpx.TransportError:
-            # Generation occasionally hangs past the timeout; a retry usually goes through
-            if attempt == 4:
-                raise
-            await asyncio.sleep(2 * (attempt + 1))
-            continue
-        if resp.status_code not in RETRY_STATUSES:
-            break
-        await asyncio.sleep(2 * (attempt + 1))
-    if resp.is_error:
-        raise RuntimeError(f"Sarvam {url} failed: {resp.status_code} {resp.text[:300]}")
+    """One attempt; timeouts raise httpx.TransportError and 429/5xx ProviderUnavailable, which the caller retries."""
+    resp = await client.post(url, headers={"api-subscription-key": settings.sarvam_api_key}, **kwargs)
+    raise_for_status(resp, "Sarvam")
     return resp
 
 

@@ -61,15 +61,15 @@ async def with_retries(
 ) -> T:
     """Await `fn()`, retrying up to `attempts` more times on `retry_on` with doubling backoff.
 
-    Each failure is logged as "<what>.retry"; the last one as "<what>.failed" and re-raised.
-    `context` (session_id=…, doubt_id=…) goes into the logged events.
+    Each failure is logged as "<what>.retry"; the last one (or one not in `retry_on`, such as a 4xx) as
+    "<what>.failed" and re-raised. `context` (session_id=…, doubt_id=…) goes into the logged events.
     """
     delay = settings.retry_backoff_s if backoff_s is None else backoff_s
     for attempt in range(attempts + 1):
         try:
             return await fn()
-        except retry_on as e:
-            last = attempt == attempts
+        except Exception as e:
+            last = attempt == attempts or not isinstance(e, retry_on)
             log_event(
                 f"{what}.{'failed' if last else 'retry'}",
                 level="error" if last else "warn",
