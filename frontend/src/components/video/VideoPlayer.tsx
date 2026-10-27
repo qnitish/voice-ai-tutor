@@ -7,7 +7,7 @@ import { doneCheckpoints } from '@/engine/video/checkpoints'
 import type { VideoTutor } from '@/engine/video/videoTutor'
 import type { Lesson } from '@/lib/types'
 import { cn } from '@/lib/utils'
-import { useVideo } from '@/store/video'
+import { canSeek, useVideo } from '@/store/video'
 
 // CanvasKit is a few MB of WebAssembly, so only Skia lessons load it
 const SkiaBoard = lazy(() => import('@/components/SkiaBoard'))
@@ -18,7 +18,7 @@ const SkiaBoard = lazy(() => import('@/components/SkiaBoard'))
  */
 export function VideoPlayer({ tutor, lesson, children }: { tutor: VideoTutor; lesson: Lesson; children?: ReactNode }) {
   const videoRef = useRef<HTMLVideoElement>(null)
-  const mode = useVideo((s) => s.mode)
+  const seekable = useVideo(canSeek)
   const overlay = useVideo((s) => s.overlay)
   const positionMs = useVideo((s) => s.positionMs)
   const answered = useVideo((s) => s.answered)
@@ -61,7 +61,7 @@ export function VideoPlayer({ tutor, lesson, children }: { tutor: VideoTutor; le
         chapters={chapters}
         checkpoints={checkpoints}
         done={done}
-        disabled={mode !== 'playing' && mode !== 'paused'}
+        disabled={!seekable}
         onSeek={(ms) => tutor.seek(ms)}
       />
     </div>

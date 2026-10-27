@@ -32,7 +32,7 @@ import type {
   VideoSessionState,
 } from '@/lib/types'
 import { initialPlayerState, setPlayer, usePlayer } from '@/store/player'
-import { type CheckpointView, initialVideoState, micState, setVideo, useVideo, type VideoDoubtView } from '@/store/video'
+import { canSeek, type CheckpointView, initialVideoState, micState, setVideo, useVideo, type VideoDoubtView } from '@/store/video'
 
 const get = useVideo.getState
 
@@ -41,6 +41,8 @@ const DEFAULT_POLICY: PlayerPolicy = { max_followups: 3, recap_after_turns: 2, r
 const SAVE_EVERY_MS = 5000
 /** start(fromMs) asks a not-done checkpoint this close to fromMs right away */
 const CHECKPOINT_SNAP_MS = 500
+/** An answer stream that delivers no line for this long is given up (the thread then ends with the sorry line) */
+const ANSWER_STALL_MS = 30_000
 
 /** video: the lecture plays or is paused; thread: a doubt holds it; checkpoint: a card is up; ending: summary */
 type Phase = 'video' | 'thread' | 'checkpoint' | 'ending'
@@ -127,6 +129,8 @@ export class VideoTutor implements MicHost {
   private questionResolve: (() => void) | null = null
   /** Cuts a teacher replay short on stop() */
   private replayStop: (() => void) | null = null
+  /** Set by a seek back from a checkpoint card: the checkpoint stops asking and the video resumes here */
+  private leaveTo: number | null = null
   private started = false
   private stopped = false
 
@@ -347,13 +351,20 @@ export class VideoTutor implements MicHost {
     }
   }
 
-  /** Seek by the student (applies checkpoints.clampSeek) */
+  /**
+   * Seek by the student (applies checkpoints.clampSeek). At the "Got it?" prompt the seek ends the thread as
+   * understood; on a checkpoint card a seek back leaves the checkpoint (it is asked again when the video gets there).
+   */
   seek(ms: number) {
     const v = this.video
-    if (!v || this.stopped || this.phase !== 'video' || this.micHold || this.routing) return
+    if (!v || this.stopped || this.micHold || this.routing || !canSeek(get())) return
+    const target = Math.max(0, Math.min(ms, this.durationMs))
+    if (get().mode === 'thread_prompt') return this.seekFromThread(target)
+    if (this.phase === 'checkpoint') return this.seekFromCheckpoint(target)
+    if (this.phase !== 'video') return
     const from = v.currentTime * 1000
     const done = this.done()
-    const to = clampSeek(from, Math.max(0, Math.min(ms, this.durationMs)), this.checkpoints, done)
+    const to = clampSeek(from, target, this.checkpoints, done)
     v.currentTime = to / 1000
     this.prevMs = to
     this.rearmCallbacks(to)
@@ -361,6 +372,38 @@ export class VideoTutor implements MicHost {
     this.savePosition(to)
     const cp = this.checkpoints.find((c) => !done.has(c.idx) && c.at_ms === to)
     if (cp && to !== from) void this.runCheckpoint(cp)
+  }
+
+  /** A seek at the "Got it?" prompt: the thread ends as understood (no recap) and the video plays from there. */
+  private seekFromThread(target: number) {
+    const thread = get().thread
+    this.gen++ // the prompt's sequence and idle timer stop here
+    this.clearIdle()
+    void this.voice.cancel()
+    if (thread?.status === 'open') api.threadReply(thread.id, true).catch((e) => reportError('video.thread_seek', e, { thread_id: thread.id }))
+    setVideo({ thread: null, promptEndsAt: null, awaitingFollowup: false })
+    const ctx = this.threadCtx
+    if (ctx.kind === 'checkpoint') {
+      setVideo({ mode: 'checkpoint', checkpoint: { ...ctx.view, busy: false }, overlay: false, caption: '' })
+      setPlayer({ drawn: [], active: [], clipTime: 0, caption: '' })
+      return this.seekFromCheckpoint(target)
+    }
+    this.phase = 'video'
+    const to = clampSeek(ctx.atMs, target, this.checkpoints, this.done())
+    this.rearmCallbacks(to)
+    this.savePosition(to)
+    this.resumeVideo(to)
+    const cp = this.checkpoints.find((c) => !this.done().has(c.idx) && c.at_ms === to)
+    if (cp && to !== ctx.atMs) void this.runCheckpoint(cp)
+  }
+
+  /** A seek back from the checkpoint card; forward stays blocked by this (unanswered) checkpoint. */
+  private seekFromCheckpoint(target: number) {
+    const view = get().checkpoint
+    if (!view || target >= this.checkpoints[view.idx].at_ms || !this.questionResolve) return
+    this.leaveTo = target
+    void this.voice.cancel()
+    this.questionResolve()
   }
 
   /** Going back before a callback's target (a seek, a "repeat" replay) plays it again when the video gets there. */
@@ -400,9 +443,20 @@ export class VideoTutor implements MicHost {
   private prefetch(doubtId: string): PendingAnswer {
     const p: PendingAnswer = { clips: [], finished: false, failed: false, notify: null, abort: new AbortController() }
     this.prefetches.add(p)
+    // A stream that stops delivering would leave the player waiting on the overlay for ever
+    let stall = 0
+    const arm = () => {
+      window.clearTimeout(stall)
+      stall = window.setTimeout(() => {
+        reportError('video.answer_stalled', `no line for ${ANSWER_STALL_MS} ms`, { doubt_id: doubtId, lines: p.clips.length })
+        p.abort.abort()
+      }, ANSWER_STALL_MS)
+    }
+    arm()
     ;(async () => {
       for await (const clip of streamAnswer(doubtId, p.abort.signal)) {
         p.clips.push(clip)
+        arm()
         p.notify?.()
       }
     })()
@@ -411,6 +465,7 @@ export class VideoTutor implements MicHost {
         if (!isAbort(e)) reportError('video.answer_stream', e, { doubt_id: doubtId })
       })
       .finally(() => {
+        window.clearTimeout(stall)
         p.finished = true
         this.prefetches.delete(p)
         p.notify?.()
@@ -735,6 +790,7 @@ export class VideoTutor implements MicHost {
     for (const [qi, q] of cp.questions.entries()) {
       if (this.stopped) return
       if (!this.questionDone(cp.idx, qi)) await this.askQuestion(cp, qi, q)
+      if (this.leaveTo !== null) return this.leaveCheckpoint()
     }
     if (this.stopped) return
     setVideo({ checkpoint: null, caption: '' })
@@ -743,6 +799,17 @@ export class VideoTutor implements MicHost {
     this.phase = 'video'
     if (atEnd) return this.finish()
     this.resumeVideo(cp.at_ms)
+  }
+
+  /** The student sought back from the card: no bridge, the video plays from there. */
+  private leaveCheckpoint() {
+    const to = this.leaveTo ?? 0
+    this.leaveTo = null
+    setVideo({ checkpoint: null, caption: '' })
+    this.phase = 'video'
+    this.rearmCallbacks(to)
+    this.savePosition(to)
+    this.resumeVideo(to)
   }
 
   /** Show one question and read it out; the student may answer before the read-out ends. */

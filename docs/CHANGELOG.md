@@ -13,6 +13,23 @@ Design docs:
 
 ---
 
+## 2026-10-27 (evening): Doubt handling from the first test sessions; seek bar never stuck (branch `feature/video-lesson`)
+
+From a review of the 19 doubts asked in the afternoon's test sessions:
+- New intents `reply` (the student answers the tutor's closing question or reacts to the answer: judged or
+  acknowledged in 1-2 lines, no re-explaining, uses no follow-up turn and is never capped) and `overview` ("what does
+  this lecture cover / what have we done so far", answered from the chapter list).
+- `doubts.said` keeps what STT heard; the answer prompt gets it next to the rewrite. A rewrite that describes the
+  student ("The student's doubt is unclear…") is replaced by the heard text.
+- Answer prompt: the chapter list (watched / playing / not watched yet), the turn in the pause, the tutor's last line;
+  transcript passages after the pause are marked so earlier material is preferred. The framing line is only for the
+  first doubt of a pause and is one clause; covered_later needs a later chapter that names the topic.
+- Player: the seek bar works at the "Got it?" prompt (ends the thread) and on a waiting checkpoint card (a seek back
+  leaves the checkpoint until the video reaches it again). Watchdogs end a stalled clip (`Speech.play`), a stalled
+  answer stream (30 s without a line) and hung video API calls (timeouts), so a thread can't freeze the player.
+
+---
+
 ## 2026-10-27 (later): Pluggable LLM provider, Claude by default; checkpoint questions v2 (branch `feature/video-lesson`)
 
 - Every LLM call now goes through `providers.get_llm()` (`LLM_PROVIDER`: `anthropic`, `azure`, `openai`, `deepseek`,

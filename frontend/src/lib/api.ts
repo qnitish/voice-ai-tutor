@@ -20,6 +20,10 @@ import type {
 } from '@/lib/types'
 
 const http = axios.create({ baseURL: '/api' })
+// Video calls the player waits on: a hung request must not leave it stuck (the caller then moves the lesson on).
+// Routing includes STT and an LLM call; closing a thread may make its recap.
+const QUESTION_TIMEOUT_MS = 60_000
+const THREAD_TIMEOUT_MS = 45_000
 
 // Server errors and network failures are reported as session events (telemetry.ts); the
 // report itself goes through /events, which is left out so a failing report can't loop.
@@ -86,14 +90,14 @@ export const api = {
       form.append('checkpoint_idx', String(checkpoint.idx))
       form.append('question_idx', String(checkpoint.question_idx))
     }
-    return http.post<VideoQuestionResult>(`/sessions/${sessionId}/video/questions`, form).then((r) => r.data)
+    return http.post<VideoQuestionResult>(`/sessions/${sessionId}/video/questions`, form, { timeout: QUESTION_TIMEOUT_MS }).then((r) => r.data)
   },
   /** "Got it" (understood) or "Ask another" after an answer */
   threadReply: (threadId: string, understood: boolean) =>
-    http.post<Thread>(`/threads/${threadId}/reply`, { understood }).then((r) => r.data),
+    http.post<Thread>(`/threads/${threadId}/reply`, { understood }, { timeout: THREAD_TIMEOUT_MS }).then((r) => r.data),
   /** The "Got it?" prompt went unanswered (policy.idle_ms), or answering failed ("error": the reply has a sorry line) */
   threadAbandon: (threadId: string, reason: 'idle' | 'error' = 'idle') =>
-    http.post<Thread>(`/threads/${threadId}/abandon`, { reason }).then((r) => r.data),
+    http.post<Thread>(`/threads/${threadId}/abandon`, { reason }, { timeout: THREAD_TIMEOUT_MS }).then((r) => r.data),
   saveVideoPosition: (sessionId: string, atMs: number) =>
     http.post(`/sessions/${sessionId}/video/position`, { at_ms: Math.round(atMs) }),
   checkpointAnswer: (sessionId: string, checkpointIdx: number, questionIdx: number, chosenIndex: number, kind: 'first' | 'retry' = 'first') =>

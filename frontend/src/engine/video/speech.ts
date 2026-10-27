@@ -9,6 +9,10 @@
 import { FADE_MS, fadeTo } from '@/engine/fade'
 
 /** How long a caption stays up when a line has no audio: ~60 ms per character, at least 1.2 s */
+/** A clip that hasn't loaded by then, or runs this much past its length (a stalled stream), counts as finished */
+const LOAD_TIMEOUT_MS = 15_000
+const OVERRUN_MS = 4000
+
 export function captionMs(text: string): number {
   return Math.max(1200, text.length * 60)
 }
@@ -56,6 +60,7 @@ export class Speech {
         window.clearTimeout(timer)
         el.onended = null
         el.onerror = null
+        el.onloadedmetadata = null
         resolve()
       }
       this.current = done
@@ -79,6 +84,17 @@ export class Speech {
       el.onerror = () => {
         console.warn('audio failed', url)
         done()
+      }
+      // Never wait for ever on a clip that stalls (no ended, no error): the lesson would stay stuck
+      const stalled = () => {
+        console.warn('audio stalled', url)
+        done()
+      }
+      timer = window.setTimeout(stalled, LOAD_TIMEOUT_MS)
+      el.onloadedmetadata = () => {
+        if (!Number.isFinite(el.duration)) return
+        window.clearTimeout(timer)
+        timer = window.setTimeout(stalled, el.duration * 1000 + OVERRUN_MS)
       }
       if (onTime) {
         const tick = () => {

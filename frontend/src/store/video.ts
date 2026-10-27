@@ -97,6 +97,16 @@ export const useVideo = create<VideoPlayerState>()(() => initialVideoState)
 export const setVideo = useVideo.setState
 
 /**
+ * Whether the seek bar (and chapter list) is live: while the video plays or is paused, at the "Got it?" prompt (a
+ * seek ends the thread) and on a checkpoint card that isn't busy (a seek back leaves the checkpoint for now).
+ */
+export function canSeek(s: VideoPlayerState): boolean {
+  if (s.listening || s.thinking) return false
+  if (s.mode === 'checkpoint') return !!s.checkpoint && !s.checkpoint.busy && s.checkpoint.stage !== 'reteach' && s.checkpoint.stage !== 'intro'
+  return s.mode === 'playing' || s.mode === 'paused' || s.mode === 'thread_prompt'
+}
+
+/**
  * Mic button state for the video page: open while playing, paused, answering or at the "Got it?" prompt, and in a
  * checkpoint only at its follow-up step.
  */

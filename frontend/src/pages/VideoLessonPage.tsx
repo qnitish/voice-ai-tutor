@@ -21,7 +21,7 @@ import type { Lesson, Resume, VideoSessionState } from '@/lib/types'
 import { cn } from '@/lib/utils'
 import { useGuestStore } from '@/store/guest'
 import { initialPlayerState, setPlayer } from '@/store/player'
-import { initialVideoState, micState, setVideo, useVideo } from '@/store/video'
+import { canSeek, initialVideoState, micState, setVideo, useVideo } from '@/store/video'
 
 /** A saved position to continue from, with the session's earlier answers and doubts (fetched before Start). */
 interface ResumePoint {
@@ -113,7 +113,8 @@ export function VideoLessonPage({ slug, onExit }: { slug: string; onExit: () => 
   const chapters = lesson.chapters ?? []
   const chapter = chapters[chapterIdx]
   const durationMs = lesson.video?.duration_ms ?? 0
-  const canSeek = mode === 'playing' || mode === 'paused'
+  const canPause = mode === 'playing' || mode === 'paused'
+  const seekable = canSeek(video)
   const card =
     mode === 'idle' ? (
       <StartCard lesson={lesson} resume={resumePoint?.resume ?? null} onStart={(from) => void start(from)} />
@@ -156,7 +157,7 @@ export function VideoLessonPage({ slug, onExit }: { slug: string; onExit: () => 
               variant="outline"
               size="icon"
               className="size-12 rounded-full"
-              disabled={!canSeek}
+              disabled={!canPause}
               onClick={() => tutor.togglePause()}
               aria-label={mode === 'paused' ? 'Resume' : 'Pause'}
             >
@@ -187,7 +188,7 @@ export function VideoLessonPage({ slug, onExit }: { slug: string; onExit: () => 
             </button>
             {chaptersOpen && (
               <div id="video-chapters" className="max-h-72 overflow-y-auto overscroll-contain lg:max-h-[35svh]">
-                <ChapterList chapters={chapters} currentIdx={chapterIdx} disabled={!canSeek} onSelect={(ms) => tutor.seek(ms)} />
+                <ChapterList chapters={chapters} currentIdx={chapterIdx} disabled={!seekable} onSelect={(ms) => tutor.seek(ms)} />
               </div>
             )}
           </div>
