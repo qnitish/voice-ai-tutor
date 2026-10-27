@@ -2,7 +2,7 @@ import re
 from datetime import datetime
 from typing import Annotated, Literal
 
-from pydantic import BaseModel, Field, TypeAdapter, ValidationError, model_validator
+from pydantic import BaseModel, Field, TypeAdapter, ValidationError, model_serializer, model_validator
 
 DEVANAGARI = re.compile(r"[ऀ-ॿ]")
 
@@ -517,6 +517,14 @@ class ResumeOut(Position):
     session_id: str
     # Video lessons: where to resume playback (scene_idx is then the chapter, step_idx 0)
     position_ms: int | None = None
+
+    @model_serializer(mode="wrap")
+    def _omit_position_ms(self, handler):
+        # Scene lessons keep their original shape
+        data = handler(self)
+        if data.get("position_ms") is None:
+            data.pop("position_ms", None)
+        return data
 
 
 class MasteryOut(BaseModel):
