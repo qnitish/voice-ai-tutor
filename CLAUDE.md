@@ -50,8 +50,8 @@ Secrets live in the root `.env` (read by `backend/app/config.py`); `.env.example
 
 ## Architecture
 
-**Offline prep** (`backend/app/prep/__main__.py`, LLM calls via `llm.prep_json` on `AZURE_OPENAI_PREP_DEPLOYMENT`, ideally a
-reasoning model) runs in stages, each cached as JSON in `data/lessons/<slug>/`:
+**Offline prep** (`backend/app/prep/__main__.py`, LLM calls via `llm.prep_json` on `LLM_PREP_MODEL` at
+`LLM_PREP_EFFORT`, the strongest model) runs in stages, each cached as JSON in `data/lessons/<slug>/`:
 1. `transcript`: ffmpeg cuts the audio slice into STT-sized chunks (provider `max_seconds`), transcribed in parallel.
 2. `outline`: LLM plans 4–6 non-overlapping scenes.
 3. `scenes`: LLM writes each scene **sequentially** (later scenes see earlier narration to avoid repeats) as steps
@@ -83,6 +83,13 @@ shuffled on publish (`quiz.shuffle_checks`) so the answer isn't always A.
   `CheckAttempt`, not counted as checks), `summary` (marks the session completed), `state` (position, answered checks and
   doubts, used to resume with earlier doubts via `engine/restore.ts`), and per-guest `resume`, `progress`,
   `mastery`, `history`. `weak_concepts` = concepts with mastery < 0.5 plus those named by summaries.
+
+**LLM** (`backend/app/llm.py` → `providers/llm_base.LLMProvider`, selected by `LLM_PROVIDER`): `anthropic` (Claude,
+`anthropic_llm.py`) or an OpenAI-compatible vendor (`openai_llm.py`: `azure`, `openai`, `deepseek`, `gemini`; a new one
+only needs a base URL). Callers use only `llm.complete_json` / `prep_json` / `stream_lines`, never a vendor SDK. Model slots
+are `LLM_MODEL` (live answers), `LLM_ROUTING_MODEL`, `LLM_PREP_MODEL`, with `LLM_EFFORT` / `LLM_PREP_EFFORT` (Settings keeps
+the old `azure_openai_*` field names, which tests pin). Claude takes no temperature and gets JSON by instruction; the caller
+validates and asks for a fix-up as with every provider. `backend/conftest.py` blanks the efforts so tests ignore `.env`.
 
 **Providers** (`backend/app/providers/`): STT/TTS are `Protocol`s, selected by `STT_PROVIDER`/`TTS_PROVIDER`. To add a vendor,
 write a module and register it in `providers/__init__.py`. Gnani specifics: auth header `X-API-Key-ID`; STT accepts at most
