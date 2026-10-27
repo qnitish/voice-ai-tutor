@@ -20,7 +20,9 @@ function useCountdown(endsAt: number | null): number {
 
 /**
  * "Did that make sense?" after an answer: Got it ends the thread, Ask another keeps it open for a follow-up (only
- * while the thread allows one). Shows how long until the idle timer resumes the lecture on its own.
+ * while the thread allows one). While a follow-up is awaited the mic is the way to answer; on a thread that has
+ * answered nothing yet (the speech wasn't understood) it asks to try again, with Continue to go back to the video.
+ * Shows how long until the idle timer resumes the lecture on its own.
  */
 export function ThreadPrompt({ tutor }: { tutor: VideoTutor }) {
   const mode = useVideo((s) => s.mode)
@@ -31,13 +33,15 @@ export function ThreadPrompt({ tutor }: { tutor: VideoTutor }) {
   const seconds = useCountdown(promptEndsAt)
   const show = thread !== null && (mode === 'thread_prompt' || awaitingFollowup)
   if (!show) return null
+  // Nothing was answered in this thread yet: the student is asked to say the question again, not "Got it?"
+  const retry = thread.turns === 0
 
   return (
     <div className="flex flex-wrap items-center gap-3 rounded-lg border border-amber-300 bg-amber-50 px-4 py-3 text-sm text-amber-950">
       <p className="flex min-w-0 flex-1 items-center gap-2 font-medium">
-        {awaitingFollowup ? (
+        {awaitingFollowup || retry ? (
           <>
-            <Mic className="size-4 shrink-0" /> {t(lesson, 'followupHint')}
+            <Mic className="size-4 shrink-0" /> {t(lesson, retry ? 'askAgainHint' : 'followupHint')}
           </>
         ) : (
           t(lesson, 'gotIt')
@@ -46,9 +50,9 @@ export function ThreadPrompt({ tutor }: { tutor: VideoTutor }) {
       {promptEndsAt !== null && <span className="text-xs text-amber-800 tabular-nums">{fill(t(lesson, 'resumingIn'), { s: seconds })}</span>}
       <div className="flex gap-2">
         <Button size="sm" onClick={() => void tutor.reply(true)}>
-          {t(lesson, 'gotItYes')}
+          {t(lesson, retry ? 'next' : 'gotItYes')}
         </Button>
-        {!awaitingFollowup && thread.can_follow_up && (
+        {!awaitingFollowup && !retry && thread.can_follow_up && (
           <Button size="sm" variant="outline" onClick={() => void tutor.reply(false)}>
             {t(lesson, 'askAnother')}
           </Button>

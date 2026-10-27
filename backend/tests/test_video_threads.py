@@ -213,12 +213,20 @@ def test_off_topic_or_unclear_keeps_an_open_thread_open_without_a_turn(client, l
     assert body["turn"] == 1
 
 
-@pytest.mark.parametrize("intent", ["off_topic", "unclear"])
-def test_off_topic_or_unclear_without_a_thread_is_resolved(client, llm, session, intent):
-    llm.classify(intent=intent, question="hmm")
+def test_off_topic_without_a_thread_is_resolved(client, llm, session):
+    llm.classify(intent="off_topic", question="hmm")
     body = ask_video(client, session["id"], at_ms=90_000)
     assert body["answer_when"] == "none"
     assert body["thread"]["status"] == "resolved"
+    assert body["thread"]["turns"] == 0
+
+
+def test_unclear_without_a_thread_stays_open(client, llm, session):
+    # "Could you say that again?" waits for the student instead of resuming the video
+    llm.classify(intent="unclear", question="hmm")
+    body = ask_video(client, session["id"], at_ms=90_000)
+    assert body["answer_when"] == "none"
+    assert body["thread"]["status"] == "open"
     assert body["thread"]["turns"] == 0
 
 

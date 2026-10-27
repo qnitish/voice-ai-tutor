@@ -112,8 +112,8 @@ export const api = {
  * Stream an answer as NDJSON. axios can't read a response body incrementally
  * in the browser, so this one call uses fetch.
  */
-export async function* streamAnswer(doubtId: string): AsyncGenerator<Clip> {
-  const resp = await fetch(`/api/doubts/${doubtId}/answer`)
+export async function* streamAnswer(doubtId: string, signal?: AbortSignal): AsyncGenerator<Clip> {
+  const resp = await fetch(`/api/doubts/${doubtId}/answer`, { signal })
   if (!resp.ok || !resp.body) throw new Error(`Answer stream failed: ${resp.status}`)
   const reader = resp.body.pipeThrough(new TextDecoderStream()).getReader()
   let buf = ''

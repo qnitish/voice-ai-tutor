@@ -35,7 +35,8 @@ video plays ── checkpoint at_ms reached ──► video pauses ──► int
    | covered_later inside an open thread | `now` | open, `turns += 1` | as `now` (the student is already paused) |
    | repeat | `replay` | closed `resolved` | play ack, seek to `replay_from_ms = max(chapter.start_ms, at_ms - 30000)`, play |
    | continue | `none` | closed `resolved` (if one was open) | play ack, recap if returned, resume |
-   | off_topic, unclear | `none` | stays open if it was open (no turn used), else closed `resolved` | play ack; if still open show "Got it?" again, else resume |
+   | off_topic | `none` | stays open if it was open (no turn used), else closed `resolved` | play ack; if still open show "Got it?" again, else resume |
+   | unclear | `none` | always stays open (no turn used; a new thread too) | play ack; show the prompt with the mic (new thread: "press the mic and ask again" + Continue) |
 
    Video routing never returns `clarify`: a low-confidence answerable doubt is answered `now` (the framing line
    restates the question). A spoken short "yes / got it" (`routing.is_affirmative`) on an open thread whose last

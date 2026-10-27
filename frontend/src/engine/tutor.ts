@@ -163,13 +163,15 @@ export class Tutor implements MicHost {
     setPlayer((s) => ({ drawn: [...s.drawn, ...timeline.map((t) => t.action)], active: [], clipTime: 0 }))
   }
 
-  private playAudio(el: HTMLAudioElement, url: string, onTime?: (ms: number) => void): Promise<void> {
+  private playAudio(el: HTMLAudioElement, url: string | null | undefined, onTime?: (ms: number) => void): Promise<void> {
     return new Promise((resolve) => {
       let raf = 0
       const done = () => {
         cancelAnimationFrame(raf)
         resolve()
       }
+      // A line whose TTS failed still arrives as text: keep its caption up for a moment, then go on
+      if (!url) return void window.setTimeout(done, 1200)
       void fadeTo(el, 1, 0) // undo a fade-out left over from an interruption
       el.src = url
       el.onended = done

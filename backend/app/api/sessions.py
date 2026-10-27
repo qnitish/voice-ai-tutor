@@ -392,15 +392,18 @@ def guest_sessions(db: Session, guest_id: str, lesson_ids: list[int] | None = No
 def resume_point(sessions: list[TutorSession]) -> ResumeOut | None:
     """Latest unfinished session with a saved position (sessions must be most recent first).
 
-    Video lessons save a playback position instead; scene_idx is then the chapter playing there.
+    Video lessons save a playback position instead; scene_idx is then the chapter playing there. A video session
+    that hasn't saved one yet ("Start over" just created it) means there is nothing to resume: an older
+    session's position must not be offered in its place.
     """
     for s in sessions:
         if s.summary is not None:
             continue
         if is_video(s.lesson):
-            if s.position_ms is not None:
-                scene_idx = chapter_at(s.lesson, s.position_ms)
-                return ResumeOut(session_id=s.id, scene_idx=scene_idx, step_idx=0, position_ms=s.position_ms)
+            if s.position_ms is None:
+                return None
+            scene_idx = chapter_at(s.lesson, s.position_ms)
+            return ResumeOut(session_id=s.id, scene_idx=scene_idx, step_idx=0, position_ms=s.position_ms)
         elif s.position_scene is not None:
             return ResumeOut(session_id=s.id, scene_idx=s.position_scene, step_idx=s.position_step)
     return None

@@ -240,7 +240,8 @@ export interface LessonProgress {
 
 export interface Spoken {
   text: string
-  audio_url: string
+  /** Missing/null when TTS failed for a fixed line: the player shows the text for a moment instead */
+  audio_url?: string | null
   duration_ms: number
 }
 

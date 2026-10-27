@@ -647,6 +647,8 @@ VIDEO_ACKS = {
 }
 # A later chapter's doubt asked inside an open thread is answered right away (the student is already paused)
 VIDEO_ACK_COVERED_NOW = "Good question! Since we're paused anyway, let's look at it right now."
+# A doubt over the follow-up cap is not answered: a neutral ack, then the capped line (no promise either way)
+VIDEO_ACK_NEUTRAL = "Okay."
 # Thread lines (docs/plan/video-lesson-spec.md 1.1)
 VIDEO_FOLLOWUP_LINE = "Sure, which part is still unclear? Ask me."
 VIDEO_CAPPED_LINE = "Let's continue with the lecture. Ask me again at the end and we'll go through it."

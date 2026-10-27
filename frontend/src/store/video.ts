@@ -16,6 +16,7 @@ export type VideoMode =
   | 'answering' // ack / answer / recap playing on the overlay
   | 'thread_prompt' // "Got it?" after an answer, waiting for the student
   | 'checkpoint' // checkpoint card on screen
+  | 'summary' // video ended: the summary is being made / read out (mic closed)
   | 'done'
 
 export interface CheckpointView {

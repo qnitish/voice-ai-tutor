@@ -12,7 +12,7 @@ from sqlalchemy.orm import Session
 
 from app import llm
 from app.api.sessions import callback_path, callback_spoken, get_session, touch, update_mastery
-from app.audio import STT_RATE, speak, speak_cached, to_wav, transcribe
+from app.audio import STT_RATE, speak, to_wav, transcribe
 from app.config import settings
 from app.context.base import ContextQuery
 from app.context.service import get_context_service, render
@@ -20,6 +20,7 @@ from app.db import Checkpoint, CheckpointAnswer, Doubt, DoubtThread, Lesson, Tut
 from app.progress import doubt_mastery
 from app.prompts import (
     VIDEO_ACK_COVERED_NOW,
+    VIDEO_ACK_NEUTRAL,
     VIDEO_ACKS,
     VIDEO_CAPPED_LINE,
     VIDEO_CLASSIFY_SYSTEM,
@@ -36,6 +37,7 @@ from app.services.threads import (
     close_thread,
     get_open_thread,
     open_thread,
+    safe_line,
     thread_out,
     transcript_window,
 )
@@ -190,15 +192,22 @@ def mastery_concept(lesson: Lesson, chapter_idx: int) -> str | None:
     return cp.questions[0].get("concept") if cp else None
 
 
-async def ack_for(cls: Classification, answer_when: str, doubt_id: str, voice: str | None) -> Spoken:
+async def ack_for(cls: Classification, answer_when: str, doubt_id: str, voice: str | None, capped: bool = False) -> Spoken:
+    """The fixed ack for a routed doubt (cached audio; text only if TTS fails, see services.threads.safe_line).
+
+    A capped doubt gets a neutral ack: the thread's capped line follows it, so the intent's ack ("let me explain
+    it another way", "I'll come back to it") would promise something that isn't going to happen.
+    """
+    if capped:
+        return await safe_line(VIDEO_ACK_NEUTRAL, voice, doubt_id=doubt_id)
     if cls.intent == "off_topic" and cls.ack:
         try:
             return await speak(cls.ack, f"doubts/{doubt_id}_ack.wav", voice)
         except Exception as e:  # noqa: BLE001 - the fixed line is always there
             log_event("ack.failed", level="warn", doubt_id=doubt_id, error=f"{type(e).__name__}: {e}"[:300])
     if cls.intent == "covered_later" and answer_when == "now":
-        return await speak_cached(VIDEO_ACK_COVERED_NOW, voice)
-    return await speak_cached(VIDEO_ACKS[cls.intent], voice)
+        return await safe_line(VIDEO_ACK_COVERED_NOW, voice, doubt_id=doubt_id)
+    return await safe_line(VIDEO_ACKS[cls.intent], voice, doubt_id=doubt_id)
 
 
 @router.post("/sessions/{session_id}/video/questions", response_model=VideoQuestionOut)
@@ -270,7 +279,8 @@ async def ask_video_question(
         touch(sess)
         db.commit()
 
-        ack_spoken = await ack_for(cls, answer_when, doubt.id, voice)
+        # Everything is committed: no row stays locked while the lines are synthesized or the recap is made
+        ack_spoken = await ack_for(cls, answer_when, doubt.id, voice, capped=capped)
 
         callback = None
         target_ms = None
@@ -278,7 +288,8 @@ async def ask_video_question(
         if answer_when == "now":
             out = thread_out(thread, policy)
         elif capped:
-            out = await close_thread(db, thread, "capped", lesson, line=await speak_cached(VIDEO_CAPPED_LINE, voice))
+            line = await safe_line(VIDEO_CAPPED_LINE, voice, session_id=sess.id, thread_id=thread.id)
+            out = await close_thread(db, thread, "capped", lesson, line=line)
         elif cls.intent == "covered_later":
             # Not needed until the target chapter starts, so synthesize it after responding
             background.add_task(speak, cls.callback, callback_path(doubt.id), voice)
@@ -289,7 +300,7 @@ async def ask_video_question(
             chapter = chapter_of(lesson, chapter_idx)
             replay_from_ms = max(chapter.start_ms if chapter else 0, at_ms - REPLAY_MS)
             out = await close_thread(db, thread, "resolved", lesson)
-        elif cls.intent in ("off_topic", "unclear") and was_open:
+        elif cls.intent == "unclear" or (cls.intent == "off_topic" and was_open):
             out = thread_out(thread, policy)  # still open, no turn used: the player shows "Got it?" again
         else:
             out = await close_thread(db, thread, "resolved", lesson)
@@ -339,12 +350,15 @@ async def reply_thread(thread_id: str, body: ThreadReplyIn, db: Session = Depend
     sess = db.get(TutorSession, thread.session_id)
     lesson = sess.lesson
     touch(sess)
+    # Committed before anything is awaited: the session row's UPDATE must not hold its lock across TTS/LLM calls
+    db.commit()
+    ids = dict(session_id=sess.id, thread_id=thread.id)
     if body.understood:
         return await close_thread(db, thread, "resolved", lesson)
     if can_follow_up(thread.turns, policy):
-        db.commit()
-        return thread_out(thread, policy, line=await speak_cached(VIDEO_FOLLOWUP_LINE, lesson.voice))
-    return await close_thread(db, thread, "capped", lesson, line=await speak_cached(VIDEO_CAPPED_LINE, lesson.voice))
+        return thread_out(thread, policy, line=await safe_line(VIDEO_FOLLOWUP_LINE, lesson.voice, **ids))
+    line = await safe_line(VIDEO_CAPPED_LINE, lesson.voice, **ids)
+    return await close_thread(db, thread, "capped", lesson, line=line)
 
 
 @router.post("/threads/{thread_id}/abandon", response_model=ThreadOut)
@@ -357,8 +371,11 @@ async def abandon_thread(thread_id: str, body: ThreadAbandonIn | None = None, db
     sess = db.get(TutorSession, thread.session_id)
     lesson = sess.lesson
     touch(sess)
+    db.commit()  # see reply_thread
     reason = body.reason if body else "idle"
-    line = await speak_cached(VIDEO_SORRY_LINE, lesson.voice) if reason == "error" else None
+    line = None
+    if reason == "error":
+        line = await safe_line(VIDEO_SORRY_LINE, lesson.voice, session_id=sess.id, thread_id=thread.id)
     log_event("thread.abandoned", session_id=sess.id, thread_id=thread.id, reason=reason)
     return await close_thread(db, thread, "abandoned", lesson, line=line)
 

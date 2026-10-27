@@ -8,6 +8,8 @@ Stages, each cached as JSON in data/lessons/<slug>/ and skipped when rerun (--re
 cache and every later one): video (encode for the browser), transcript, chapters, checkpoints (where to pause, and
 the questions), review (fact-check), remedy (hints per wrong option, the teacher's replay range), audio (TTS).
 --share-from copies another slug's transcript (e.g. the scene lesson of the same lecture).
+The fixed lines the live routes play (acks, thread lines, template recaps) are pre-generated at the end; for a lesson
+that is already published, `python -m app.prep.video --slug SLUG --lines-only` does only that (in the lesson's voice).
 """
 
 import argparse
@@ -20,11 +22,11 @@ from pathlib import Path
 
 from pydantic import BaseModel, Field, model_validator
 
-from app.audio import speak, speak_cached
+from app.audio import cached_path, speak, speak_cached
 from app.config import settings
 from app.db import SessionLocal, migrate
 from app.language import current_stt_language
-from app.lesson_store import publish_video_lesson
+from app.lesson_store import latest_lesson, publish_video_lesson
 from app import llm
 from app.prep.__main__ import bounded, check_text, make_fillers, make_transcript
 from app.prompts import (
@@ -34,6 +36,13 @@ from app.prompts import (
     CHECKPOINT_REMEDY_SYSTEM,
     CHECKPOINT_REVIEW_SYSTEM,
     CHECKPOINTS_SYSTEM,
+    VIDEO_ACK_COVERED_NOW,
+    VIDEO_ACK_NEUTRAL,
+    VIDEO_ACKS,
+    VIDEO_CAPPED_LINE,
+    VIDEO_FOLLOWUP_LINE,
+    VIDEO_RECAP_TEMPLATE,
+    VIDEO_SORRY_LINE,
     for_gender,
 )
 from app.quiz import shuffle_checks
@@ -462,19 +471,62 @@ def load_db(
         ).version
 
 
+def reset_stages(files: dict[str, Path], redo: str | None, share_from: str | None) -> None:
+    """Delete the caches of `redo` and every later stage, then copy the shared transcript (in that order, so
+    `--redo transcript` with `--share-from` copies it again instead of re-transcribing)."""
+    if redo:
+        for stage in STAGES[STAGES.index(redo) :]:
+            files[stage].unlink(missing_ok=True)
+    if share_from:
+        src = settings.lessons_dir / share_from / "transcript.json"
+        if not src.exists():
+            raise SystemExit(f"--share-from: {src} not found; prepare {share_from} first")
+        if not files["transcript"].exists():
+            files["transcript"].write_text(src.read_text())
+
+
+# The fixed lines the live video routes play (app.api.video_doubts, app.services.threads), as `speak_cached` keys
+VIDEO_LINES = [*VIDEO_ACKS.values(), VIDEO_ACK_COVERED_NOW, VIDEO_ACK_NEUTRAL, VIDEO_FOLLOWUP_LINE, VIDEO_CAPPED_LINE, VIDEO_SORRY_LINE]
+
+
+async def make_video_lines(titles: list[str], voice: str | None = None) -> int:
+    """Pre-generate the lines spoken instantly around video doubts, in the lesson's voice: the acks, the thread
+    lines and the template recap per chapter title (and the lesson title, used when a chapter is unknown).
+
+    The live code speaks these English literals as they are (no `line_for`: video lines are not translated), so
+    the cache keys match whatever `language` the lesson has. Returns how many lines were synthesized.
+    """
+    lines = [*VIDEO_LINES, *(VIDEO_RECAP_TEMPLATE.format(title=t) for t in titles)]
+    made = 0
+    for text in dict.fromkeys(lines):
+        if not cached_path(text, voice).exists():
+            made += 1
+        await speak_cached(text, voice)
+    log.info("video lines: %d cached, %d synthesized", len(lines) - made, made)
+    return made
+
+
+def published_lesson(slug: str) -> tuple[str, list[str], str | None]:
+    """The published lesson's title, chapter titles and voice (its latest version)."""
+    with SessionLocal() as db:
+        lesson = latest_lesson(db, slug)
+        if not lesson or lesson.kind != "video":
+            raise SystemExit(f"no published video lesson '{slug}'")
+        return lesson.title, [c.title for c in lesson.chapters], lesson.voice
+
+
 async def run(args: argparse.Namespace) -> None:
+    if args.lines_only:
+        # Just the fixed lines, for a lesson that is already published (no stage is rerun, nothing is republished)
+        title, titles, voice = published_lesson(args.slug)
+        await make_video_lines([*titles, title], args.voice or voice)
+        return
+    if not args.video:
+        raise SystemExit("the video file is required unless --lines-only is given")
     out = settings.lessons_dir / args.slug
     out.mkdir(parents=True, exist_ok=True)
     files = {s: out / f"{s}.json" for s in STAGES}
-    if args.share_from:
-        src = settings.lessons_dir / args.share_from / "transcript.json"
-        if not src.exists():
-            raise SystemExit(f"--share-from: {src} not found; prepare {args.share_from} first")
-        if not files["transcript"].exists():
-            files["transcript"].write_text(src.read_text())
-    if args.redo:
-        for stage in STAGES[STAGES.index(args.redo) :]:
-            files[stage].unlink(missing_ok=True)
+    reset_stages(files, args.redo, args.share_from)
 
     async def cached(stage: str, make):
         if files[stage].exists():
@@ -510,6 +562,7 @@ async def run(args: argparse.Namespace) -> None:
     remedies = await cached("remedy", lambda: remediate(checkpoints, chapters, transcript, args.voice, args.language))
     spoken = await cached("audio", lambda: narrate(args.slug, checkpoints, remedies, args.voice))
     await make_fillers(args.voice, args.language)
+    await make_video_lines([*(c["title"] for c in chapters), outline["title"]], args.voice)
     version = load_db(
         args.slug, outline["title"], transcript, video, chapters, spoken, args.voice, args.language, args.label
     )
@@ -522,9 +575,14 @@ async def run(args: argparse.Namespace) -> None:
 
 def main() -> None:
     parser = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
-    parser.add_argument("video")
+    parser.add_argument("video", nargs="?", help="the lecture video (not needed with --lines-only)")
     parser.add_argument("--slug", required=True)
     parser.add_argument("--redo", choices=STAGES)
+    parser.add_argument(
+        "--lines-only",
+        action="store_true",
+        help="only pre-generate the fixed lines (acks, thread lines, template recaps) for the published lesson",
+    )
     parser.add_argument("--voice", help="voice name from data/voices/ (default: the configured stock voice)")
     parser.add_argument("--language", choices=["hinglish", "english"], default="english", help="what the tutor speaks")
     parser.add_argument(

@@ -8,6 +8,7 @@ import asyncio
 import re
 from dataclasses import dataclass
 from datetime import datetime, timezone
+from uuid import uuid4
 
 from pydantic import BaseModel
 from sqlalchemy import select
@@ -24,8 +25,24 @@ from app.telemetry import Timer, log_event
 # Transcript of the last minute goes into the recap (and the routing prompt)
 RECAP_WINDOW_MS = 60_000
 _MARK = re.compile(r"\[(\d+):(\d{2})(?::(\d{2}))?\]")
-# Background recap tasks, kept so they are not garbage-collected before they finish
-_tasks: set[asyncio.Task] = set()
+# The background recap task per thread: kept so it is not garbage-collected before it finishes, and so a thread
+# that closes while its recap is still being made waits for it instead of making a second one
+_recap_tasks: dict[str, asyncio.Task] = {}
+
+
+def recap_path(thread_id: str) -> str:
+    """A fresh media path per recap, so two generations for one thread can never overwrite a file being served."""
+    return f"threads/{thread_id}_recap_{uuid4().hex[:8]}.wav"
+
+
+async def safe_line(text: str, voice: str | None, **ids) -> Spoken:
+    """A fixed line's cached audio; if TTS fails, the text alone (empty audio_url, 0 ms) so the request still
+    answers. Prep pre-generates these lines (app.prep.video.make_video_lines), so this is the exception."""
+    try:
+        return await speak_cached(text, voice)
+    except Exception as e:  # noqa: BLE001 - the routing result matters more than the audio of a fixed line
+        log_event("line.failed", level="warn", text=text[:80], error=_err(e), **ids)
+        return Spoken(text=text, audio_url="", duration_ms=0)
 
 
 @dataclass(frozen=True)
@@ -149,7 +166,7 @@ async def make_recap(thread: DoubtThread, lesson: Lesson) -> Spoken | None:
             log_event("thread.recap_failed", level="warn", session_id=thread.session_id, thread_id=thread.id, error=_err(e))
     try:
         if text:
-            spoken = await speak(text, f"threads/{thread.id}_recap.wav", lesson.voice)
+            spoken = await speak(text, recap_path(thread.id), lesson.voice)
             source = "llm"
         else:
             spoken = await speak_cached(VIDEO_RECAP_TEMPLATE.format(title=title), lesson.voice)
@@ -161,15 +178,40 @@ async def make_recap(thread: DoubtThread, lesson: Lesson) -> Spoken | None:
     return spoken
 
 
+async def thread_recap(db: Session, thread: DoubtThread, lesson: Lesson) -> Spoken | None:
+    """The thread's recap: the stored one, the one a background task is still making, else a fresh one.
+
+    Called with no transaction open (the caller committed), so nothing is locked while the recap is awaited;
+    the row is re-read after the background task because that task writes with its own session.
+    """
+    task = _recap_tasks.get(thread.id)
+    if task is not None and not task.done():
+        try:
+            await asyncio.shield(task)
+        except Exception as e:  # noqa: BLE001 - logged by the task; make one here instead
+            log_event("thread.recap_failed", level="warn", session_id=thread.session_id, thread_id=thread.id, error=_err(e))
+    stored = db.scalar(select(DoubtThread.recap).where(DoubtThread.id == thread.id))
+    db.commit()  # ends the read transaction before any await below
+    if stored:
+        thread.recap = stored
+        return Spoken(**stored)
+    return await make_recap(thread, lesson)
+
+
 async def close_thread(
     db: Session, thread: DoubtThread, status: str, lesson: Lesson, line: Spoken | None = None
 ) -> ThreadOut:
-    """End a thread (resolved | capped | abandoned) with its recap when it was long enough. Commits."""
+    """End a thread (resolved | capped | abandoned) with its recap when it was long enough. Commits.
+
+    The caller's pending changes are committed before the recap is awaited: an UPDATE flushed on a row (e.g. the
+    session's `updated_at`) would otherwise hold its lock across the LLM/TTS calls, and a concurrent request on
+    the same row would block the event loop. The thread row itself changes only after the recap exists.
+    """
     policy = ThreadPolicy.from_settings()
-    # The recap is made before the thread row changes, so no row lock is held while the LLM and TTS run
     recap = None
     if needs_recap(thread.turns, thread.audio_ms, policy) and not is_checkpoint_thread(db, thread):
-        recap = Spoken(**thread.recap) if thread.recap else await make_recap(thread, lesson)
+        db.commit()
+        recap = await thread_recap(db, thread, lesson)
     thread.status = status
     thread.ended_at = datetime.now(timezone.utc)
     if recap:
@@ -210,7 +252,15 @@ async def prepare_recap(thread_id: str) -> None:
 
 
 def schedule_recap(thread_id: str) -> None:
-    """Run prepare_recap after the current request, keeping the task referenced until it finishes."""
+    """Run prepare_recap after the current request, one task per thread (a running one is left to finish)."""
+    running = _recap_tasks.get(thread_id)
+    if running is not None and not running.done():
+        return
     task = asyncio.create_task(prepare_recap(thread_id))
-    _tasks.add(task)
-    task.add_done_callback(_tasks.discard)
+    _recap_tasks[thread_id] = task
+
+    def forget(t: asyncio.Task) -> None:
+        if _recap_tasks.get(thread_id) is t:
+            del _recap_tasks[thread_id]
+
+    task.add_done_callback(forget)

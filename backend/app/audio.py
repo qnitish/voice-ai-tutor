@@ -91,10 +91,19 @@ async def transcribe(wav: bytes, language: str, **context) -> str:
     return text
 
 
+def cached_rel_path(text: str, voice: str | None = None) -> str:
+    """Where speak_cached keeps a fixed line's audio, relative to media/ (per voice)."""
+    folder = "cache" if is_default(voice) else f"cache/{voice}"
+    return f"{folder}/{hashlib.sha1(text.encode()).hexdigest()[:16]}.wav"
+
+
+def cached_path(text: str, voice: str | None = None):
+    return settings.media_dir / cached_rel_path(text, voice)
+
+
 async def speak_cached(text: str, voice: str | None = None) -> Spoken:
     """Like speak(), but reuses audio for fixed lines that recur (feedback, prompts), per voice."""
-    folder = "cache" if is_default(voice) else f"cache/{voice}"
-    rel_path = f"{folder}/{hashlib.sha1(text.encode()).hexdigest()[:16]}.wav"
+    rel_path = cached_rel_path(text, voice)
     path = settings.media_dir / rel_path
     if not path.exists():
         return await speak(text, rel_path, voice)
