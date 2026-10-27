@@ -44,6 +44,12 @@ const LINES = {
     replayingTeacher: 'Teacher ka explanation phir se…',
     videoError: 'Kuch gadbad hui. Lecture continue kar {rahi} hoon.',
     videoEnded: 'Lecture khatam!',
+    startOver: 'Shuru se',
+    startHint: '{n} chapters aur {q} check questions. Doubt ho toh kabhi bhi mic dabao.',
+    followupHint: 'Mic dabake batao kaunsa part abhi bhi unclear hai.',
+    yourDoubts: 'Tumhare doubts',
+    backToLessons: 'Lessons par wapas',
+    chapterOf: 'Chapter {n}/{total}: {title}',
   },
   english: {
     quickCheck: 'Quick check',
@@ -82,6 +88,12 @@ const LINES = {
     replayingTeacher: "Replaying the teacher's explanation…",
     videoError: 'Something went wrong. Continuing the lecture.',
     videoEnded: 'Lecture finished!',
+    startOver: 'Start over',
+    startHint: '{n} chapters with {q} check questions. Tap or hold the mic anytime to ask a doubt.',
+    followupHint: 'Press the mic and tell me which part is still unclear.',
+    yourDoubts: 'Your doubts',
+    backToLessons: 'Back to lessons',
+    chapterOf: 'Chapter {n}/{total}: {title}',
   },
 } satisfies Record<Language, Record<string, string>>
 
