@@ -20,7 +20,7 @@ import logging
 import re
 from pathlib import Path
 
-from app.audio import speak, speak_cached, split_for_stt
+from app.audio import speak, speak_cached, split_for_stt, transcribe
 from app.config import settings
 from app.db import SessionLocal, migrate
 from app.lesson_store import publish_lesson
@@ -67,7 +67,8 @@ async def make_transcript(audio: Path, start_min: float, minutes: float) -> str:
     chunks = split_for_stt(audio, start_min * 60, minutes * 60, chunk_s)
     log.info("transcribing %d chunks of %ss", len(chunks), chunk_s)
     sem = asyncio.Semaphore(4)
-    texts = await asyncio.gather(*(bounded(sem, stt.transcribe(c)) for c in chunks))
+    language = current_stt_language.get()
+    texts = await asyncio.gather(*(bounded(sem, transcribe(c, language)) for c in chunks))
     lines = []
     for i, text in enumerate(texts):
         t = int(start_min * 60 + i * chunk_s)

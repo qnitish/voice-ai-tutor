@@ -13,10 +13,9 @@ from sqlalchemy.orm import Session
 from app import llm
 from app.api.sessions import callback_path, callback_spoken, get_session, touch, update_mastery
 from app.api.video_doubts import video_answer_prompt
-from app.audio import STT_RATE, speak, speak_cached, to_wav
+from app.audio import STT_RATE, speak, speak_cached, to_wav, transcribe
 from app.config import settings
 from app.db import CheckAttempt, CheckResult, Doubt, DoubtThread, Lesson, SessionLocal, TutorSession, get_db
-from app.language import current_stt_language
 from app.progress import doubt_mastery
 from app.prompts import ANSWER_SYSTEM, CLASSIFY_SYSTEM, FIXED_ACKS, VIDEO_ANSWER_SYSTEM, clarify_ack, for_gender, line_for
 from app.providers import get_stt
@@ -157,11 +156,7 @@ async def ask_question(
     if duration_ms > stt.max_seconds * 1000:
         raise HTTPException(400, f"Recording longer than {stt.max_seconds}s")
     # The student is expected to speak the lesson's language
-    token = current_stt_language.set(lesson.language)
-    try:
-        transcript = await stt.transcribe(wav) if duration_ms > 300 else ""
-    finally:
-        current_stt_language.reset(token)
+    transcript = await transcribe(wav, lesson.language, session_id=sess.id) if duration_ms > 300 else ""
 
     cls, needs_clarify = await classify(db, sess, scene_idx, step_idx, transcript, during_check)
     pending = None
