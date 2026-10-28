@@ -31,7 +31,7 @@ video plays ── checkpoint at_ms reached ──► video pauses ──► int
    | intent | answer_when | thread after routing | player does |
    |---|---|---|---|
    | prerequisite, confused, not_covered | `now` | open, `turns += 1` | play ack, stream the answer on the overlay, then "Got it?" |
-   | covered_later (only when no thread is open) | `target_chapter` | closed `resolved` | play ack, resume; at `target_ms` play the callback |
+   | covered_later (only when no thread is open) | `target_chapter` | closed `resolved` | play ack, resume; from `target_ms` (chapter start) prefetch the answer; at `deliver_ms` (chapter end, or its checkpoint if earlier) pause, `POST /api/doubts/{id}/deliver` (new open thread, turns 1), play the callback, the answer on the board, then "Got it?" (changed 2026-10-28: the callback used to be the whole delivery) |
    | covered_later inside an open thread | `now` | open, `turns += 1` | as `now` (the student is already paused) |
    | repeat | `replay` | closed `resolved` | play ack, seek to `replay_from_ms = max(chapter.start_ms, at_ms - 30000)`, play |
    | continue | `none` | closed `resolved` (if one was open) | play ack, recap if returned, resume |
@@ -246,7 +246,7 @@ Prompts go in `app/prompts.py` under "Video lessons: prep".
   `caption`, `lesson`), reusing `schedule`/`layoutStep` and `streamAnswer`. Implements 1.1–1.3: pause with fade,
   play order (1.1.7), prefetching the answer stream as soon as the question is routed, thread prompt with the idle
   timer (`promptEndsAt`), follow-ups (`awaitingFollowup`), capped/recap/abandon/error, `target_chapter` callbacks
-  (watch `timeupdate`; seeking back before `target_ms` re-arms a played callback), `replay`, checkpoints incl. the
+  (watch `timeupdate`; a delivered doubt is not delivered again after a seek back), `replay`, checkpoints incl. the
   teacher replay, resume, position saving, `listening`/`thinking` flags, summary on end (`api.summary` →
   `store.summary`), `reportError` + `setTelemetrySession` for failures. Ignore a second mic press while routing.
 - Tests: `frontend/tests/video-checkpoints.test.ts` (test author; don't edit).
@@ -275,7 +275,8 @@ Prompts go in `app/prompts.py` under "Video lessons: prep".
 - Second mic press while routing ignored; mic closed during checkpoint questions except the follow-up step.
 - A doubt asked while the recap or a bridge plays cancels that audio; it continues the thread if still open, else
   starts a new one.
-- A `target_chapter` callback that comes due during a thread or checkpoint waits until it ends.
+- A `target_chapter` callback that comes due during a thread or checkpoint waits until it ends; one due at the same
+  time as a checkpoint plays first.
 - Video ends: finish any open thread, ask a not-done final checkpoint, then the summary.
 - Generated lessons are untouched; `kind` defaults to `"generated"`.
 

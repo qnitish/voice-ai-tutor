@@ -33,6 +33,7 @@ from app.routing import is_affirmative
 from app.schemas import Classification, Spoken, ThreadAbandonIn, ThreadOut, ThreadReplyIn, VideoQuestionOut
 from app.services.threads import (
     ThreadPolicy,
+    schedule_recap,
     can_follow_up,
     chapter_of,
     close_thread,
@@ -85,6 +86,20 @@ def chapter_at(lesson: Lesson, at_ms: int) -> int:
     return idx
 
 
+# A promised doubt is answered at least this long before the video ends (the player can't stop on its last frame)
+END_MARGIN_MS = 1500
+
+
+def deliver_ms(lesson: Lesson, chapter_idx: int) -> int:
+    """When a promised (covered_later) doubt is answered: at the end of its target chapter, once the teacher has
+    taught it, or at that chapter's checkpoint if it comes first (the doubt is answered before the quiz on it)."""
+    chapter = chapter_of(lesson, chapter_idx)
+    at = min([chapter.end_ms, *(cp.at_ms for cp in lesson.checkpoints if cp.chapter_idx == chapter_idx and cp.at_ms > chapter.start_ms)])
+    if lesson.duration_ms:
+        at = min(at, lesson.duration_ms - END_MARGIN_MS)
+    return max(at, chapter.start_ms)
+
+
 def checkpoint_question(lesson: Lesson, checkpoint_idx: int | None, question_idx: int | None) -> tuple[Checkpoint | None, dict | None]:
     cp = next((c for c in lesson.checkpoints if c.idx == checkpoint_idx), None) if checkpoint_idx is not None else None
     if cp is None or question_idx is None or not (0 <= question_idx < len(cp.questions)):
@@ -110,7 +125,11 @@ def thread_history(db: Session, thread_id: str | None, before: Doubt | None = No
     q = select(Doubt).filter_by(thread_id=thread_id).order_by(Doubt.created_at)
     if before is not None:
         q = q.filter(Doubt.created_at < before.created_at)
-    rows = db.scalars(q).all()
+    return history_text(db.scalars(q).all())
+
+
+def history_text(rows: list[Doubt]) -> str:
+    """`thread_history` for these doubts (also used by scripts/book_context_eval.py for unsaved doubts)."""
     if not rows:
         return ""
     lines = []
@@ -311,6 +330,7 @@ async def ask_video_question(
 
         callback = None
         target_ms = None
+        deliver_at = None
         replay_from_ms = None
         if answer_when == "now":
             out = thread_out(thread, policy)
@@ -322,6 +342,7 @@ async def ask_video_question(
             background.add_task(speak, cls.callback, callback_path(doubt.id), voice)
             callback = callback_spoken(doubt)
             target_ms = chapter_of(lesson, cls.target_scene_idx).start_ms
+            deliver_at = deliver_ms(lesson, cls.target_scene_idx)
             out = await close_thread(db, thread, "resolved", lesson)
         elif cls.intent == "repeat":
             chapter = chapter_of(lesson, chapter_idx)
@@ -353,6 +374,7 @@ async def ask_video_question(
         answer_when=answer_when,
         target_chapter_idx=cls.target_scene_idx,
         target_ms=target_ms,
+        deliver_ms=deliver_at,
         replay_from_ms=replay_from_ms,
         ack=ack_spoken,
         callback=callback,
@@ -407,6 +429,39 @@ async def abandon_thread(thread_id: str, body: ThreadAbandonIn | None = None, db
     return await close_thread(db, thread, "abandoned", lesson, line=line)
 
 
+def promised(doubt: Doubt) -> bool:
+    """A covered_later doubt waiting for (or answered after) its target chapter, not one answered right away."""
+    return doubt.intent == "covered_later" and doubt.target_scene_idx is not None
+
+
+@router.post("/doubts/{doubt_id}/deliver", response_model=ThreadOut)
+async def deliver_doubt(doubt_id: str, db: Session = Depends(get_db)):
+    """A promised doubt is due: the video is paused after its target chapter. The doubt moves to a new open thread
+    there, as its first answered turn, so its answer, "Got it?" and follow-ups work as for a doubt answered now."""
+    doubt = db.get(Doubt, doubt_id)
+    if not doubt:
+        raise HTTPException(404, "Doubt not found")
+    if not promised(doubt):
+        raise HTTPException(400, "Not a promised doubt")
+    sess = db.get(TutorSession, doubt.session_id)
+    lesson = sess.lesson
+    thread = open_thread(db, sess, deliver_ms(lesson, doubt.target_scene_idx), doubt.target_scene_idx)
+    thread.turns = 1
+    if doubt.answer:  # prefetched while the chapter played: its audio moves to this thread (for its recap)
+        audio = sum(r["duration_ms"] for r in doubt.answer)
+        thread.audio_ms = audio
+        earlier = db.get(DoubtThread, doubt.thread_id) if doubt.thread_id else None
+        if earlier:
+            earlier.audio_ms = max(0, earlier.audio_ms - audio)
+    doubt.thread_id = thread.id
+    touch(sess)
+    db.commit()
+    log_event("doubt.delivered", session_id=sess.id, thread_id=thread.id, doubt_id=doubt.id, at_ms=thread.at_ms)
+    if doubt.answer:
+        schedule_recap(thread.id)
+    return thread_out(thread, ThreadPolicy.from_settings())
+
+
 # ---- answer prompt (used by questions.stream_answer for video lessons) ----
 
 
@@ -451,13 +506,11 @@ def chapter_list(lesson: Lesson, at_ms: int) -> str:
     return "Lecture chapters:\n" + "\n".join(lines) + "\n\n"
 
 
-async def answer_context(lesson: Lesson, doubt: Doubt) -> str:
-    """Passages from the configured sources; the raw transcript if the context service fails."""
+async def answer_context(lesson: Lesson, doubt: Doubt, at_ms: int | None, chapter_idx: int) -> str:
+    """Passages from the configured sources around `at_ms`; the raw transcript if the context service fails."""
     try:
-        passages = await get_context_service().gather(
-            ContextQuery(lesson.id, doubt.question, doubt.at_ms, doubt.scene_idx)
-        )
-        text = render_marked(passages, doubt.at_ms)
+        passages = await get_context_service().gather(ContextQuery(lesson.id, doubt.question, at_ms, chapter_idx))
+        text = render_marked(passages, at_ms)
     except Exception as e:  # noqa: BLE001 - answer from the transcript rather than not at all
         log_event(
             "context.failed", level="warn", session_id=doubt.session_id, doubt_id=doubt.id, error=f"{type(e).__name__}: {e}"[:300]
@@ -469,18 +522,29 @@ async def answer_context(lesson: Lesson, doubt: Doubt) -> str:
 async def video_answer_prompt(db: Session, doubt: Doubt, sess: TutorSession) -> str:
     lesson = sess.lesson
     guest = sess.guest
-    chapter = chapter_of(lesson, doubt.scene_idx)
+    # A promised doubt is answered after its target chapter: the context is that chapter, now watched
+    later = promised(doubt)
+    chapter_idx = doubt.target_scene_idx if later else doubt.scene_idx
+    at_ms = deliver_ms(lesson, chapter_idx) if later else doubt.at_ms or 0
+    chapter = chapter_of(lesson, chapter_idx)
     return (
         f"Student: {guest.name}, class {guest.class_level or 'unknown'}, "
         f"weak concepts so far: {', '.join(guest.weak_concepts) or 'none'}\n"
         f"Doubt intent: {doubt.intent}\nDoubt: {doubt.question}\n"
         + (f'Student said (speech-to-text): "{doubt.said}"\n' if doubt.said and doubt.said != doubt.question else "")
-        + f"Turn in this pause: {doubt.turn}\n\n"
-        f"Current chapter {doubt.scene_idx}: {chapter.title if chapter else lesson.title}\n"
+        + f"Turn in this pause: {doubt.turn}\n"
+        + (
+            f"Answered later: the student asked this at {mmss(doubt.at_ms or 0)} and I promised to come back to it. "
+            f"They have just watched chapter {chapter_idx}, which covers it, and the video is paused at its end. "
+            f'The callback line ("{doubt.callback}") has just been said.\n'
+            if later
+            else ""
+        )
+        + f"\nCurrent chapter {chapter_idx}: {chapter.title if chapter else lesson.title}\n"
         f"Summary: {chapter.summary if chapter else ''}\n"
-        f"Video paused at {mmss(doubt.at_ms or 0)}\n\n"
-        f"{chapter_list(lesson, doubt.at_ms or 0)}"
+        f"Video paused at {mmss(at_ms)}\n\n"
+        f"{chapter_list(lesson, at_ms)}"
         f"{thread_history(db, doubt.thread_id, before=doubt)}"
         f"{checkpoint_context(db, doubt, lesson)}"
-        f"Lecture context:\n{await answer_context(lesson, doubt)}"
+        f"Lecture context:\n{await answer_context(lesson, doubt, at_ms, chapter_idx)}"
     )

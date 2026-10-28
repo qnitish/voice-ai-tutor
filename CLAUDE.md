@@ -45,6 +45,11 @@ Try a prompt or voice change on a few clips before re-preparing a lesson: `.venv
 `/media/samples/<name>/index.html` plays the tags side by side. Lessons carry tags in the app (language, voice, build `vN`,
 prep `--label`), so builds of the same lecture can be told apart.
 
+Textbook pages for a video lesson's doubt answers: `.venv/bin/python -m app.prep.book "<book>.pdf" --slug lecture-05-video
+--pages 71,74-77 --printed-offset 23 --title "…"` renders them (poppler `pdftoppm`) to `data/lessons/<slug>/book/`; every
+answer gets them as images before the doubt, cached with the system prompt (`app/context/book.py`, `CONTEXT_BOOK_PAGES`).
+`scripts/book_context_eval.py` answers five doubts with and without them and writes a report to `data/evals/book-context/`.
+
 Test checksums are in `docs/plan/tests.lock`. Ports 8000 and 5432 are used by other local projects, hence 8010 and 5440.
 Secrets live in the root `.env` (read by `backend/app/config.py`); `.env.example` lists every key.
 

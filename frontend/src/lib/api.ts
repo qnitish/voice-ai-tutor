@@ -100,6 +100,9 @@ export const api = {
   /** The "Got it?" prompt went unanswered (policy.idle_ms), or answering failed ("error": the reply has a sorry line) */
   threadAbandon: (threadId: string, reason: 'idle' | 'error' = 'idle') =>
     http.post<Thread>(`/threads/${threadId}/abandon`, { reason }, { timeout: THREAD_TIMEOUT_MS }).then((r) => r.data),
+  /** A promised doubt is due: it gets an open thread of its own, as that thread's answered turn */
+  deliverDoubt: (doubtId: string) =>
+    http.post<Thread>(`/doubts/${doubtId}/deliver`, null, { timeout: THREAD_TIMEOUT_MS }).then((r) => r.data),
   saveVideoPosition: (sessionId: string, atMs: number) =>
     http.post(`/sessions/${sessionId}/video/position`, { at_ms: Math.round(atMs) }),
   checkpointAnswer: (sessionId: string, checkpointIdx: number, questionIdx: number, chosenIndex: number, kind: 'first' | 'retry' = 'first') =>

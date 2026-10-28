@@ -727,7 +727,8 @@ class VideoQuestionOut(BaseModel):
     intent: Intent
     answer_when: VideoAnswerWhen
     target_chapter_idx: int | None = None
-    target_ms: int | None = None  # covered_later: when the callback plays (the target chapter's start)
+    target_ms: int | None = None  # covered_later: the target chapter's start (the player prepares the answer from here)
+    deliver_ms: int | None = None  # covered_later: when the callback and the answer play (that chapter's end)
     replay_from_ms: int | None = None  # repeat: where the video seeks back to
     ack: Spoken | None  # None for a follow-up answered now: its answer continues on the board
     callback: Spoken | None = None

@@ -13,6 +13,36 @@ Design docs:
 
 ---
 
+## 2026-10-28 (evening): Promised video doubts are answered after their chapter (branch `feature/video-lesson`)
+
+- A covered_later doubt used to get only "You asked earlier…, let's look at that now" at the target chapter's start,
+  with no answer. Now the player prefetches its answer from the chapter's start (`target_ms`) and, at the chapter's
+  end or its checkpoint if that comes first (`deliver_ms`, `video_doubts.deliver_ms`), pauses, calls
+  `POST /api/doubts/{id}/deliver` (the doubt moves to a new open thread as its answered turn), plays the callback and
+  the answer on the board, then "Got it?" with follow-ups. Answered before the checkpoint quiz; not again after a seek back.
+- The answer prompt for it ("Answered later") uses the target chapter as watched, skips the framing line and connects
+  the answer to what was just shown. The routing prompt's callback ends "we just covered this, so let me connect it
+  to your question."
+- Spec `video-lesson-spec.md` 1.1.2 updated for this.
+
+---
+
+## 2026-10-28 (later): Textbook pages in video doubt answers (branch `feature/video-lesson`)
+
+- `python -m app.prep.book` renders chosen pages of the class textbook (JPEG, about 1.15 MP, the size Claude reads
+  without scaling) to `data/lessons/<slug>/book/` with `book.json`. `lecture-05-video`: Sears and Zemansky ch. 2,
+  printed pp. 48, 51–54 (constant-acceleration equations, 2.5 Freely Falling Bodies, Examples 2.6–2.8).
+- Every video answer gets them as images before the doubt (`app/context/book.py`), marked as a cached prefix after the
+  system prompt; message parts (text, image) in `llm_base.Messages`, converted by the Anthropic and OpenAI providers.
+  `CONTEXT_BOOK_PAGES=false` switches them off. The Anthropic provider logs `llm.usage` (input, cache read/write, output).
+- `VIDEO_ANSWER_SYSTEM`: the book corrects definitions, values and sign conventions and answers what the lecture
+  doesn't cover; the teacher's notation, examples and level come first; the hidden `source` line ends with "Book p.N".
+- `scripts/book_context_eval.py`: five lecture-5 doubts answered with and without the pages (two runs on
+  2026-10-28: about 7.6k more input tokens per answer, read from the cache after the first; the first spoken line
+  about 1–1.4 s later on average).
+
+---
+
 ## 2026-10-28: Follow-ups continue on the board; recap over the paused video, in first person (branch `feature/video-lesson`)
 
 - A question asked while a doubt is being answered is a follow-up: its answer is drawn below the earlier one on the

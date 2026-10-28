@@ -1,8 +1,10 @@
 from collections.abc import AsyncIterator
-from typing import Protocol
+from typing import Any, Protocol
 
-# A chat history as {"role": "user" | "assistant", "content": str}; the system prompt is passed separately
-Messages = list[dict[str, str]]
+# A chat history as {"role": "user" | "assistant", "content": str | parts}; the system prompt is passed separately.
+# Parts are {"type": "text", "text": ...} or {"type": "image", "media_type": ..., "data": base64}; a part with
+# "cache": True ends a prefix the provider may cache (with the system prompt), where it supports that.
+Messages = list[dict[str, Any]]
 
 
 class LLMProvider(Protocol):

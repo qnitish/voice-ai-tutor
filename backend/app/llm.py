@@ -72,15 +72,17 @@ async def prep_json(system: str, user: str, schema: type[T]) -> T:
 
 
 async def stream_lines(
-    system: str, user: str, temperature: float = 0.5, model: str | None = None
+    system: str, user: str, temperature: float = 0.5, model: str | None = None, prefix: list[dict] | None = None
 ) -> AsyncIterator[str]:
     """Stream the completion and yield it one complete line at a time.
 
+    `prefix`: message parts (text and images, see llm_base.Messages) placed before `user`, such as book pages.
     Only opening the stream is retried. Once a line has been yielded, a failure is logged
     (`llm.stream_failed`) and ends the stream, so the caller keeps what it has.
     """
     model = model or settings.azure_openai_deployment
-    messages: Messages = [{"role": "user", "content": user}]
+    content = [*prefix, {"type": "text", "text": user}] if prefix else user
+    messages: Messages = [{"role": "user", "content": content}]
     stream = await _call(
         lambda: get_llm().open_stream(system, messages, model=model, temperature=temperature, effort=settings.llm_effort),
         model,

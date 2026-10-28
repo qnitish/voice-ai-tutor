@@ -14,6 +14,18 @@ BASE_URLS = {
 }
 
 
+def content_parts(content: str | list[dict]) -> str | list[dict]:
+    """llm_base message parts as Chat Completions content (images as data URLs; "cache" marks are ignored)."""
+    if isinstance(content, str):
+        return content
+    return [
+        {"type": "image_url", "image_url": {"url": f"data:{p['media_type']};base64,{p['data']}"}}
+        if p["type"] == "image"
+        else {"type": "text", "text": p["text"]}
+        for p in content
+    ]
+
+
 class OpenAICompatLLM:
     retryable = (APIConnectionError, APITimeoutError, RateLimitError, InternalServerError)
 
@@ -33,7 +45,8 @@ class OpenAICompatLLM:
     def _request(system: str, messages: Messages, model: str, temperature: float, effort: str | None) -> dict:
         # A reasoning model takes reasoning_effort instead of a temperature
         sampling = {"reasoning_effort": effort} if effort else {"temperature": temperature}
-        return {"model": model, "messages": [{"role": "system", "content": system}, *messages], **sampling}
+        chat = [{**m, "content": content_parts(m["content"])} for m in messages]
+        return {"model": model, "messages": [{"role": "system", "content": system}, *chat], **sampling}
 
     async def complete(
         self, system: str, messages: Messages, *, model: str, json: bool, temperature: float, effort: str | None

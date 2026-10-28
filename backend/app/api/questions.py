@@ -15,6 +15,7 @@ from app.api.sessions import callback_path, callback_spoken, get_session, touch,
 from app.api.video_doubts import video_answer_prompt
 from app.audio import STT_RATE, speak, speak_cached, to_wav, transcribe
 from app.config import settings
+from app.context.book import book_parts
 from app.db import CheckAttempt, CheckResult, Doubt, DoubtThread, Lesson, SessionLocal, TutorSession, get_db
 from app.progress import doubt_mastery
 from app.prompts import ANSWER_SYSTEM, CLASSIFY_SYSTEM, FIXED_ACKS, VIDEO_ANSWER_SYSTEM, clarify_ack, for_gender, line_for
@@ -345,10 +346,13 @@ async def stream_answer(doubt_id: str):
         session_id, thread_id = sess.id, doubt.thread_id
         voice = sess.lesson.voice
         video = sess.lesson.kind == "video"
+        book: list[dict] = []
         if video:
             # Grounded in the chapters and the context service, not in scenes
             system = VIDEO_ANSWER_SYSTEM
             prompt = None if cached else await video_answer_prompt(db, doubt, sess)
+            if not cached and settings.context_book_pages:
+                book = book_parts(sess.lesson.slug)
         else:
             system = for_gender(ANSWER_SYSTEM, get_voice(voice).gender, sess.lesson.language)
             prompt = None if cached else answer_prompt(db, doubt, sess)
@@ -363,8 +367,10 @@ async def stream_answer(doubt_id: str):
 
         async def produce():
             n = 0
+            # Only passed when there are pages (the test fake of stream_lines takes no prefix)
+            extra = {"prefix": book} if book else {}
             try:
-                async for line in llm.stream_lines(system, prompt):
+                async for line in llm.stream_lines(system, prompt, **extra):
                     try:
                         step = StepDraft.model_validate_json(line)
                     except ValidationError:
@@ -378,6 +384,8 @@ async def stream_answer(doubt_id: str):
         rows: list[dict] = []
         started = time.perf_counter()
         ids = dict(session_id=session_id, thread_id=thread_id, doubt_id=doubt_id)
+        if book:
+            log_event("answer.book_pages", pages=sum(p["type"] == "image" for p in book), **ids)
         producer = asyncio.create_task(produce())
         while (item := await queue.get()) is not None:
             step, task = item
@@ -397,13 +405,16 @@ async def stream_answer(doubt_id: str):
         if video and not rows:
             return  # nothing to replay; the player abandons the thread with reason "error"
         with SessionLocal.begin() as db:
-            db.get(Doubt, doubt_id).answer = rows
-            if video and thread_id:
+            stored = db.get(Doubt, doubt_id)
+            stored.answer = rows
+            # Read again: a promised doubt prepared in advance may have moved to its delivery thread meanwhile
+            owner = stored.thread_id
+            if video and owner:
                 # First store only (cached replays return above): the thread now has this much more audio
-                thread = db.get(DoubtThread, thread_id)
+                thread = db.get(DoubtThread, owner)
                 if thread:
                     thread.audio_ms += sum(r["duration_ms"] for r in rows)
-        if video and thread_id:
-            schedule_recap(thread_id)
+        if video and owner:
+            schedule_recap(owner)
 
     return StreamingResponse(generate(), media_type="application/x-ndjson")

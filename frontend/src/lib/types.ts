@@ -372,8 +372,10 @@ export interface VideoQuestionResult {
   intent: Intent
   answer_when: VideoAnswerWhen
   target_chapter_idx: number | null
-  /** covered_later: when the callback plays */
+  /** covered_later: the target chapter's start (the answer is prepared from here) */
   target_ms: number | null
+  /** covered_later: when the callback and the answer play (that chapter's end, or its checkpoint) */
+  deliver_ms: number | null
   /** repeat: where the video seeks back to */
   replay_from_ms: number | null
   /** null for a follow-up answered now: its answer continues on the board without a canned line */

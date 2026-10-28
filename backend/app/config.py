@@ -84,6 +84,8 @@ class Settings(BaseSettings):
     context_sources: str = "transcript"
     context_window_s: int = 180  # transcript before the pause point always included
     context_max_chars: int = 12000
+    # Textbook pages rendered for a video lesson (python -m app.prep.book) go to the answer LLM as images
+    context_book_pages: bool = True
     # Retries for external calls (app.telemetry.with_retries); backoff doubles each attempt
     llm_retries: int = 2
     tts_retries: int = 2

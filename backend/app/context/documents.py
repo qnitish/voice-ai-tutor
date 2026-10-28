@@ -1,4 +1,6 @@
-"""Notes and book PDFs as an answer-context source. Not wired up yet: `retrieve` returns `[]`.
+"""Notes and book PDFs as a TEXT answer-context source. Not wired up yet: `retrieve` returns `[]`.
+
+Textbook pages already reach video answers as images (app.context.book); this stub is for text passages.
 
 How to fill this in (callers need no change; `ContextService` already merges, dedupes and budgets passages):
 

@@ -51,11 +51,16 @@ type Phase = 'video' | 'thread' | 'checkpoint' | 'ending'
 /** What a doubt thread returns to when it ends: the video (resumed near atMs) or a checkpoint's follow-up card. */
 type ThreadContext = { kind: 'video'; atMs: number } | { kind: 'checkpoint'; view: CheckpointView }
 
-/** "You asked earlier…" for a covered_later doubt, played when the video reaches targetMs */
+/**
+ * A covered_later doubt: its answer is prepared once the video reaches the target chapter (targetMs), and at the
+ * chapter's end (deliverMs) the video pauses for "You asked earlier…" and the answer on the board.
+ */
 interface Callback {
   doubtId: string
   targetMs: number
+  deliverMs: number
   spoken: Spoken
+  answer: PendingAnswer | null
   played: boolean
 }
 
@@ -327,11 +332,13 @@ export class VideoTutor implements MicHost {
       this.prevMs = now
       return
     }
+    for (const c of this.callbacks) if (!c.played && !c.answer && c.targetMs <= now) c.answer = this.prefetch(c.doubtId)
+    // A promised doubt due here is answered before the checkpoint on the same section
+    const cb = this.callbacks.find((c) => !c.played && c.deliverMs <= now)
+    if (cb) return void this.playCallback(cb)
     const cp = dueCheckpoint(this.prevMs, now, this.checkpoints, this.done())
     this.prevMs = now
     if (cp) return void this.runCheckpoint(cp)
-    const cb = this.callbacks.find((c) => !c.played && c.targetMs <= now)
-    if (cb) void this.playCallback(cb)
   }
 
   private onEnded = () => {
@@ -375,7 +382,6 @@ export class VideoTutor implements MicHost {
     const to = clampSeek(from, target, this.checkpoints, done)
     v.currentTime = to / 1000
     this.prevMs = to
-    this.rearmCallbacks(to)
     setVideo({ positionMs: to, chapterIdx: chapterAt(to, this.chapters) })
     this.savePosition(to)
     const cp = this.checkpoints.find((c) => !done.has(c.idx) && c.at_ms === to)
@@ -398,7 +404,6 @@ export class VideoTutor implements MicHost {
     }
     this.phase = 'video'
     const to = clampSeek(ctx.atMs, target, this.checkpoints, this.done())
-    this.rearmCallbacks(to)
     this.savePosition(to)
     this.resumeVideo(to)
     const cp = this.checkpoints.find((c) => !this.done().has(c.idx) && c.at_ms === to)
@@ -412,11 +417,6 @@ export class VideoTutor implements MicHost {
     this.leaveTo = target
     void this.voice.cancel()
     this.questionResolve()
-  }
-
-  /** Going back before a callback's target (a seek, a "repeat" replay) plays it again when the video gets there. */
-  private rearmCallbacks(toMs: number) {
-    for (const cb of this.callbacks) if (cb.targetMs > toMs) cb.played = false
   }
 
   // ---- speaking ----
@@ -665,7 +665,8 @@ export class VideoTutor implements MicHost {
       return this.afterAnswer(now, gen, 0)
     }
     if (res.answer_when === 'target_chapter' && res.callback && res.target_ms !== null) {
-      this.callbacks.push({ doubtId: res.doubt_id, targetMs: res.target_ms, spoken: res.callback, played: false })
+      const deliverMs = res.deliver_ms ?? res.target_ms
+      this.callbacks.push({ doubtId: res.doubt_id, targetMs: res.target_ms, deliverMs, spoken: res.callback, answer: null, played: false })
     }
     if (!(await this.say(res.ack, gen))) return
     if (!(await this.afterLine(res.thread, gen))) return
@@ -719,7 +720,6 @@ export class VideoTutor implements MicHost {
       return
     }
     this.phase = 'video'
-    if (seekMs !== null) this.rearmCallbacks(seekMs)
     this.resumeVideo(seekMs ?? resumePointMs(ctx.atMs, this.chapters, this.policy.rewind_ms))
   }
 
@@ -791,7 +791,11 @@ export class VideoTutor implements MicHost {
     }
   }
 
-  /** "You asked earlier…" when the video reaches the chapter that answers a promised doubt. */
+  /**
+   * A promised doubt is due (the video has played its chapter): pause, "You asked earlier…", then its answer on the
+   * board in a thread of its own, with "Got it?" and follow-ups as for a doubt answered now. Delivered once: seeking
+   * back over its chapter doesn't answer it again.
+   */
   private async playCallback(cb: Callback) {
     if (this.phase !== 'video') return
     const gen = this.gen
@@ -799,14 +803,27 @@ export class VideoTutor implements MicHost {
     const atMs = this.video!.currentTime * 1000
     this.phase = 'thread'
     this.threadCtx = { kind: 'video', atMs }
+    this.clearIdle()
     await this.hold()
     setVideo({ mode: 'answering' })
     updateDoubt(cb.doubtId, { status: 'answering' })
-    const ok = await this.say(cb.spoken, gen)
-    updateDoubt(cb.doubtId, { status: 'answered' })
-    if (!ok) return // a mic press took over; its thread resumes the video
-    this.phase = 'video'
-    this.resumeVideo(atMs)
+    await this.guarded('video.deliver', gen, async () => {
+      const thread = await api.deliverDoubt(cb.doubtId)
+      if (!this.live(gen)) return
+      setVideo({ thread })
+      const now: NowAnswer = {
+        doubtId: cb.doubtId,
+        ack: cb.spoken,
+        thread,
+        answer: cb.answer ?? this.prefetch(cb.doubtId),
+        stage: 'ack',
+        clipIdx: 0,
+        drawnBefore: [],
+      }
+      this.nowAnswer = now
+      if (!(await this.say(cb.spoken, gen))) return
+      return this.afterAnswer(now, gen, 0)
+    })
   }
 
   // ---- checkpoints ----
@@ -850,7 +867,6 @@ export class VideoTutor implements MicHost {
     this.leaveTo = null
     setVideo({ checkpoint: null, caption: '' })
     this.phase = 'video'
-    this.rearmCallbacks(to)
     this.savePosition(to)
     this.resumeVideo(to)
   }
