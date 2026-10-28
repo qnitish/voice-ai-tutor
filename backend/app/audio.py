@@ -6,8 +6,11 @@ import wave
 from pathlib import Path
 
 from app.config import settings
-from app.providers import get_tts
+from app.language import current_stt_language
+from app.providers import get_stt, get_tts
+from app.providers.base import RETRYABLE
 from app.schemas import Spoken
+from app.telemetry import Timer, log_event, with_retries
 from app.voices import current_voice, get_voice, is_default
 
 TTS_RATE = 24000
@@ -54,20 +57,53 @@ def save_media(rel_path: str, data: bytes) -> str:
 
 
 async def speak(text: str, rel_path: str, voice: str | None = None) -> Spoken:
-    """TTS the text in a lesson's voice (None = default), store it under media/, and return its URL and duration."""
+    """TTS the text in a lesson's voice (None = default), store it under media/, and return its URL and duration.
+
+    Retried on timeouts, connection errors and 429/5xx (settings.tts_retries); logs `tts.done`.
+    """
     token = current_voice.set(get_voice(voice))
     try:
-        raw = await get_tts().synthesize(text)
+        with Timer() as t:
+            raw = await with_retries(
+                lambda: get_tts().synthesize(text), what="tts", attempts=settings.tts_retries, retry_on=RETRYABLE, chars=len(text)
+            )
     finally:
         current_voice.reset(token)
+    log_event("tts.done", ms=t.ms, chars=len(text))
     wav, duration_ms = await asyncio.to_thread(to_wav, raw, TTS_RATE)
     return Spoken(text=text, audio_url=save_media(rel_path, wav), duration_ms=duration_ms)
 
 
+async def transcribe(wav: bytes, language: str, **context) -> str:
+    """STT in the lesson's language (`context` = session_id/doubt_id for logging).
+
+    Retried on timeouts, connection errors and 429/5xx (settings.stt_retries); logs `stt.done`.
+    """
+    token = current_stt_language.set(language)
+    try:
+        with Timer() as t:
+            text = await with_retries(
+                lambda: get_stt().transcribe(wav), what="stt", attempts=settings.stt_retries, retry_on=RETRYABLE, **context
+            )
+    finally:
+        current_stt_language.reset(token)
+    log_event("stt.done", ms=t.ms, chars=len(text), **context)
+    return text
+
+
+def cached_rel_path(text: str, voice: str | None = None) -> str:
+    """Where speak_cached keeps a fixed line's audio, relative to media/ (per voice)."""
+    folder = "cache" if is_default(voice) else f"cache/{voice}"
+    return f"{folder}/{hashlib.sha1(text.encode()).hexdigest()[:16]}.wav"
+
+
+def cached_path(text: str, voice: str | None = None):
+    return settings.media_dir / cached_rel_path(text, voice)
+
+
 async def speak_cached(text: str, voice: str | None = None) -> Spoken:
     """Like speak(), but reuses audio for fixed lines that recur (feedback, prompts), per voice."""
-    folder = "cache" if is_default(voice) else f"cache/{voice}"
-    rel_path = f"{folder}/{hashlib.sha1(text.encode()).hexdigest()[:16]}.wav"
+    rel_path = cached_rel_path(text, voice)
     path = settings.media_dir / rel_path
     if not path.exists():
         return await speak(text, rel_path, voice)

@@ -4,7 +4,8 @@
  * - text that overlaps anything moves to the next free line (and is pulled inside the board),
  * - a shape whose strokes cross text, or whose own text is crossed, shifts by the smallest free offset
  *   (shapes may overlap each other: diagrams touch on purpose),
- * - labels take the first free spot of their candidates.
+ * - labels take the first free spot of their candidates,
+ * - a motion's trail and its items' end positions count as taken, so later items keep clear of them.
  * The result only depends on the input, so a resumed board is laid out exactly as it was first drawn.
  */
 import type { DrawAction, Point } from '@/lib/types'
@@ -24,6 +25,7 @@ import {
   textWidth,
   union,
 } from '@/engine/geometry'
+import { motionFrame } from '@/engine/motion'
 
 const MARGIN = 16
 const PAD = 6
@@ -216,11 +218,28 @@ function placedFrom(board: DrawAction[]): Placed {
   return placed
 }
 
-function placeBodies(draw: DrawAction[], placed: Placed): DrawAction[] {
+/** Take the space a motion uses: its trail and ghosts, and its items where they end up. */
+function addMotion(m: Extract<DrawAction, { type: 'motion' }>, known: DrawAction[], placed: Placed) {
+  const frame = motionFrame([...known, m].map((action) => ({ action, p: 1, live: false })))
+  add(placed, frame.under.get(m.id) ?? [])
+  for (const tr of m.tracks) {
+    const target = known.find((a) => a.id === tr.target)
+    const [dx, dy] = frame.offsets.get(tr.target) ?? [0, 0]
+    if (target && (dx || dy)) add(placed, bodyMarks(translate(target, dx, dy)))
+  }
+}
+
+/** `known` = everything placed so far on this board, in order (motions look up their items in it). */
+function placeBodies(draw: DrawAction[], placed: Placed, known: DrawAction[]): DrawAction[] {
   return draw.map((a) => {
-    if (a.type === 'highlight') return a
+    if (a.type === 'highlight' || a.type === 'motion') {
+      if (a.type === 'motion') addMotion(a, known, placed)
+      known.push(a)
+      return a
+    }
     const moved = a.type === 'text' ? placeText(a, placed) : placeShape(a, placed)
     add(placed, bodyMarks(moved))
+    known.push(moved)
     return moved
   })
 }
@@ -231,7 +250,7 @@ function placeBodies(draw: DrawAction[], placed: Placed): DrawAction[] {
  */
 export function layoutStep(draw: DrawAction[], board: DrawAction[] = []): DrawAction[] {
   const placed = placedFrom(board)
-  return placeBodies(draw, placed).map((a) => placeLabels(a, placed))
+  return placeBodies(draw, placed, [...board]).map((a) => placeLabels(a, placed))
 }
 
 /**
@@ -240,6 +259,7 @@ export function layoutStep(draw: DrawAction[], board: DrawAction[] = []): DrawAc
  */
 export function layoutScene(steps: DrawAction[][]): DrawAction[][] {
   const placed: Placed = { texts: [], segs: [], fills: [] }
-  const bodies = steps.map((draw) => placeBodies(draw, placed))
+  const known: DrawAction[] = []
+  const bodies = steps.map((draw) => placeBodies(draw, placed, known))
   return bodies.map((draw) => draw.map((a) => placeLabels(a, placed)))
 }

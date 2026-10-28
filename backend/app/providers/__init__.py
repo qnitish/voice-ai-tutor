@@ -1,22 +1,35 @@
-"""Speech provider registry.
+"""Speech and LLM provider registry.
 
 To add a vendor (ElevenLabs, OpenAI, ...), write a class matching
-STTProvider / TTSProvider in its own module, register it below, and set
-STT_PROVIDER / TTS_PROVIDER in .env. A cloned voice only exists at the vendor
+STTProvider / TTSProvider / LLMProvider in its own module, register it below, and set
+STT_PROVIDER / TTS_PROVIDER / LLM_PROVIDER in .env. An OpenAI-compatible LLM API only
+needs a base URL in openai_llm.BASE_URLS. A cloned voice only exists at the vendor
 that cloned it, so TTS for such a voice goes to that vendor whatever
-TTS_PROVIDER says. Tests swap in fakes with set_stt / set_tts.
+TTS_PROVIDER says. Tests swap in fakes with set_stt / set_tts
+(and replace app.llm.complete_json / stream_lines for the LLM).
 """
 
+from collections.abc import Callable
 from functools import cache
 
 from app.config import settings
 from app.providers.base import STTProvider, TTSProvider
+from app.providers.anthropic_llm import AnthropicLLM
 from app.providers.gnani import GnaniSTT, GnaniTTS
+from app.providers.llm_base import LLMProvider
+from app.providers.openai_llm import OpenAICompatLLM
 from app.providers.sarvam import SarvamSTT, SarvamTTS
 from app.voices import current_voice
 
 STT_PROVIDERS: dict[str, type] = {"gnani": GnaniSTT, "sarvam": SarvamSTT}
 TTS_PROVIDERS: dict[str, type] = {"gnani": GnaniTTS, "sarvam": SarvamTTS}
+LLM_PROVIDERS: dict[str, Callable[[], LLMProvider]] = {
+    "anthropic": AnthropicLLM,
+    "azure": lambda: OpenAICompatLLM("azure"),
+    "openai": lambda: OpenAICompatLLM("openai"),
+    "deepseek": lambda: OpenAICompatLLM("deepseek"),
+    "gemini": lambda: OpenAICompatLLM("gemini"),
+}
 
 
 _overrides: dict[str, object] = {}
@@ -30,6 +43,11 @@ def _configured_stt() -> STTProvider:
 @cache
 def _tts(name: str) -> TTSProvider:
     return TTS_PROVIDERS[name]()
+
+
+@cache
+def get_llm() -> LLMProvider:
+    return LLM_PROVIDERS[settings.llm_provider]()
 
 
 def get_stt() -> STTProvider:

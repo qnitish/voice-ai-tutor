@@ -1,5 +1,6 @@
 import axios from 'axios'
 
+import { reportError } from '@/lib/telemetry'
 import type {
   CheckResult,
   Clip,
@@ -12,10 +13,30 @@ import type {
   SessionState,
   SessionSummary,
   Spoken,
+  Thread,
   TutorSession,
+  VideoQuestionResult,
+  VideoSessionState,
 } from '@/lib/types'
 
 const http = axios.create({ baseURL: '/api' })
+// Video calls the player waits on: a hung request must not leave it stuck (the caller then moves the lesson on).
+// Routing includes STT and an LLM call; closing a thread may make its recap.
+const QUESTION_TIMEOUT_MS = 60_000
+const THREAD_TIMEOUT_MS = 45_000
+
+// Server errors and network failures are reported as session events (telemetry.ts); the
+// report itself goes through /events, which is left out so a failing report can't loop.
+http.interceptors.response.use(undefined, (error: unknown) => {
+  if (axios.isAxiosError(error) && !axios.isCancel(error)) {
+    const url = error.config?.url ?? ''
+    const status = error.response?.status
+    if (!url.includes('/events') && (status === undefined || status >= 500)) {
+      reportError('api.request', error, { url, method: error.config?.method, status: status ?? null })
+    }
+  }
+  return Promise.reject(error)
+})
 
 export const api = {
   listLessons: () => http.get<LessonSummary[]>('/lessons').then((r) => r.data),
@@ -38,12 +59,14 @@ export const api = {
   savePosition: (sessionId: string, sceneIdx: number, stepIdx: number) =>
     http.post(`/sessions/${sessionId}/position`, { scene_idx: sceneIdx, step_idx: stepIdx }),
 
-  askQuestion: (sessionId: string, audio: Blob, sceneIdx: number, stepIdx: number, duringCheck = false) => {
+  /** followUpOf: the doubt whose answer was playing when the student asked */
+  askQuestion: (sessionId: string, audio: Blob, sceneIdx: number, stepIdx: number, duringCheck = false, followUpOf: string | null = null) => {
     const form = new FormData()
     form.append('audio', audio, 'question.webm')
     form.append('scene_idx', String(sceneIdx))
     form.append('step_idx', String(stepIdx))
     form.append('during_check', String(duringCheck))
+    if (followUpOf) form.append('follow_up_of', followUpOf)
     return http.post<QuestionResult>(`/sessions/${sessionId}/questions`, form).then((r) => r.data)
   },
   /** kind: first answer, a second try after the hint, or the twin question */
@@ -57,14 +80,46 @@ export const api = {
   skipCheck: (sessionId: string, sceneIdx: number, twin: boolean) =>
     http.post(`/sessions/${sessionId}/check/skip`, { scene_idx: sceneIdx, twin }),
   summary: (sessionId: string) => http.post<SessionSummary>(`/sessions/${sessionId}/summary`).then((r) => r.data),
+
+  // ---- Video lessons (docs/plan/video-lesson-spec.md) ----
+  /** threadId: continue that doubt thread (a follow-up); checkpoint: asked from a checkpoint's follow-up prompt */
+  videoQuestion: (sessionId: string, audio: Blob, atMs: number, threadId: string | null = null, checkpoint: { idx: number; question_idx: number } | null = null) => {
+    const form = new FormData()
+    form.append('audio', audio, 'question.webm')
+    form.append('at_ms', String(Math.round(atMs)))
+    if (threadId) form.append('thread_id', threadId)
+    if (checkpoint) {
+      form.append('checkpoint_idx', String(checkpoint.idx))
+      form.append('question_idx', String(checkpoint.question_idx))
+    }
+    return http.post<VideoQuestionResult>(`/sessions/${sessionId}/video/questions`, form, { timeout: QUESTION_TIMEOUT_MS }).then((r) => r.data)
+  },
+  /** "Got it" (understood) or "Ask another" after an answer */
+  threadReply: (threadId: string, understood: boolean) =>
+    http.post<Thread>(`/threads/${threadId}/reply`, { understood }, { timeout: THREAD_TIMEOUT_MS }).then((r) => r.data),
+  /** The "Got it?" prompt went unanswered (policy.idle_ms), or answering failed ("error": the reply has a sorry line) */
+  threadAbandon: (threadId: string, reason: 'idle' | 'error' = 'idle') =>
+    http.post<Thread>(`/threads/${threadId}/abandon`, { reason }, { timeout: THREAD_TIMEOUT_MS }).then((r) => r.data),
+  saveVideoPosition: (sessionId: string, atMs: number) =>
+    http.post(`/sessions/${sessionId}/video/position`, { at_ms: Math.round(atMs) }),
+  checkpointAnswer: (sessionId: string, checkpointIdx: number, questionIdx: number, chosenIndex: number, kind: 'first' | 'retry' = 'first') =>
+    http
+      .post<CheckResult>(`/sessions/${sessionId}/checkpoints/${checkpointIdx}/answer`, { question_idx: questionIdx, chosen_index: chosenIndex, kind })
+      .then((r) => r.data),
+  checkpointSkip: (sessionId: string, checkpointIdx: number, questionIdx: number) =>
+    http.post(`/sessions/${sessionId}/checkpoints/${checkpointIdx}/skip`, { question_idx: questionIdx }),
+  videoState: (sessionId: string) => http.get<VideoSessionState>(`/sessions/${sessionId}/video/state`).then((r) => r.data),
+  /** Client-side events and errors, stored with the session (app.telemetry) */
+  clientEvent: (event: { session_id?: string | null; thread_id?: string | null; doubt_id?: string | null; kind: string; level?: 'info' | 'warn' | 'error'; data?: Record<string, unknown> }) =>
+    http.post('/events', event).catch(() => {}),
 }
 
 /**
  * Stream an answer as NDJSON. axios can't read a response body incrementally
  * in the browser, so this one call uses fetch.
  */
-export async function* streamAnswer(doubtId: string): AsyncGenerator<Clip> {
-  const resp = await fetch(`/api/doubts/${doubtId}/answer`)
+export async function* streamAnswer(doubtId: string, signal?: AbortSignal): AsyncGenerator<Clip> {
+  const resp = await fetch(`/api/doubts/${doubtId}/answer`, { signal })
   if (!resp.ok || !resp.body) throw new Error(`Answer stream failed: ${resp.status}`)
   const reader = resp.body.pipeThrough(new TextDecoderStream()).getReader()
   let buf = ''

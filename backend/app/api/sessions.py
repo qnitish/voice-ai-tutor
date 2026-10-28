@@ -6,7 +6,7 @@ from sqlalchemy.orm import Session
 
 from app import llm
 from app.audio import speak, speak_cached
-from app.db import CheckAttempt, CheckResult, ConceptMastery, Doubt, Guest, Lesson, TutorSession, get_db
+from app.db import CheckAttempt, CheckpointAnswer, CheckResult, ConceptMastery, Doubt, Guest, Lesson, TutorSession, get_db
 from app.lesson_store import latest_lesson
 from app.voices import get_voice
 from app.progress import WEAK_BELOW, next_mastery, retry_mastery
@@ -80,6 +80,19 @@ def fixed_line(sess: TutorSession, text: str):
 
 def touch(sess: TutorSession) -> None:
     sess.updated_at = func.clock_timestamp()
+
+
+def is_video(lesson: Lesson) -> bool:
+    return lesson.kind == "video"
+
+
+def chapter_at(lesson: Lesson, at_ms: int) -> int:
+    """Index of the chapter playing at at_ms (the last one starting at or before it; 0 before the first)."""
+    idx = 0
+    for c in lesson.chapters:
+        if c.start_ms <= at_ms:
+            idx = c.idx
+    return idx
 
 
 def update_mastery(db: Session, guest_id: str, concept: str, rule, attempt: bool) -> None:
@@ -250,31 +263,74 @@ def skip_check(session_id: str, body: SkipIn, db: Session = Depends(get_db)):
     return {"ok": True}
 
 
+def scene_check_facts(db: Session, sess: TutorSession) -> dict:
+    """Scene lessons: what the summary prompt sees of the lesson and the check results."""
+    checks = db.scalars(select(CheckResult).filter_by(session_id=sess.id).order_by(CheckResult.created_at)).all()
+    later = {(a.scene_idx, a.kind): a.correct for a in db.scalars(select(CheckAttempt).filter_by(session_id=sess.id))}
+    return {
+        "scenes": [{"title": s.title, "goal": s.goal} for s in sess.lesson.scenes],
+        "check_results": [
+            {
+                "concept": c.concept,
+                "correct": c.correct,
+                "retry_correct": later.get((c.scene_idx, "retry")),
+                "twin_correct": later.get((c.scene_idx, "twin")),
+                "twin_skipped": (c.scene_idx, "twin_skip") in later,
+            }
+            for c in checks
+        ],
+        "skipped_checks": sorted(i for i, kind in later if kind == "skip"),
+    }
+
+
+def checkpoint_answers(db: Session, session_id: str) -> list[CheckpointAnswer]:
+    """In the order they were given."""
+    q = select(CheckpointAnswer).filter_by(session_id=session_id).order_by(CheckpointAnswer.created_at, CheckpointAnswer.id)
+    return list(db.scalars(q).all())
+
+
+def video_check_facts(db: Session, sess: TutorSession) -> dict:
+    """Video lessons: the same shape, from chapters and checkpoint answers (no twins; skips are named by concept)."""
+    lesson = sess.lesson
+    concepts = {(cp.idx, i): q.get("concept", "") for cp in lesson.checkpoints for i, q in enumerate(cp.questions)}
+    answers = {(a.checkpoint_idx, a.question_idx, a.kind): a for a in checkpoint_answers(db, sess.id)}
+    firsts = [a for a in answers.values() if a.kind == "first"]
+    skipped = [
+        concepts.get((a.checkpoint_idx, a.question_idx), "")
+        for a in answers.values()
+        if a.kind == "skip" and (a.checkpoint_idx, a.question_idx, "first") not in answers
+    ]
+    return {
+        "scenes": [{"title": c.title, "goal": c.summary} for c in lesson.chapters],
+        "check_results": [
+            {
+                "concept": concepts.get((a.checkpoint_idx, a.question_idx), ""),
+                "correct": a.correct,
+                "retry_correct": getattr(answers.get((a.checkpoint_idx, a.question_idx, "retry")), "correct", None),
+                "twin_correct": None,
+                "twin_skipped": False,
+            }
+            for a in firsts
+        ],
+        "skipped_checks": skipped,
+    }
+
+
 @router.post("/sessions/{session_id}/summary", response_model=SummaryOut)
 async def end_session_summary(session_id: str, db: Session = Depends(get_db)):
     sess = get_session(db, session_id)
     if sess.summary:
         return sess.summary
     doubts = db.scalars(select(Doubt).filter_by(session_id=sess.id).order_by(Doubt.created_at)).all()
-    checks = db.scalars(select(CheckResult).filter_by(session_id=sess.id).order_by(CheckResult.created_at)).all()
-    later = {(a.scene_idx, a.kind): a.correct for a in db.scalars(select(CheckAttempt).filter_by(session_id=sess.id))}
+    facts = video_check_facts(db, sess) if is_video(sess.lesson) else scene_check_facts(db, sess)
     user = json.dumps(
         {
             "student": {"name": sess.guest.name, "class": sess.guest.class_level},
             "lesson": sess.lesson.title,
-            "scenes": [{"title": s.title, "goal": s.goal} for s in sess.lesson.scenes],
+            "scenes": facts["scenes"],
             "doubts": [{"question": d.question, "intent": d.intent} for d in doubts],
-            "check_results": [
-                {
-                    "concept": c.concept,
-                    "correct": c.correct,
-                    "retry_correct": later.get((c.scene_idx, "retry")),
-                    "twin_correct": later.get((c.scene_idx, "twin")),
-                    "twin_skipped": (c.scene_idx, "twin_skip") in later,
-                }
-                for c in checks
-            ],
-            "skipped_checks": sorted(i for i, kind in later if kind == "skip"),
+            "check_results": facts["check_results"],
+            "skipped_checks": facts["skipped_checks"],
         },
         ensure_ascii=False,
     )
@@ -334,9 +390,21 @@ def guest_sessions(db: Session, guest_id: str, lesson_ids: list[int] | None = No
 
 
 def resume_point(sessions: list[TutorSession]) -> ResumeOut | None:
-    """Latest unfinished session with a saved position (sessions must be most recent first)."""
+    """Latest unfinished session with a saved position (sessions must be most recent first).
+
+    Video lessons save a playback position instead; scene_idx is then the chapter playing there. A video session
+    that hasn't saved one yet ("Start over" just created it) means there is nothing to resume: an older
+    session's position must not be offered in its place.
+    """
     for s in sessions:
-        if s.summary is None and s.position_scene is not None:
+        if s.summary is not None:
+            continue
+        if is_video(s.lesson):
+            if s.position_ms is None:
+                return None
+            scene_idx = chapter_at(s.lesson, s.position_ms)
+            return ResumeOut(session_id=s.id, scene_idx=scene_idx, step_idx=0, position_ms=s.position_ms)
+        elif s.position_scene is not None:
             return ResumeOut(session_id=s.id, scene_idx=s.position_scene, step_idx=s.position_step)
     return None
 
@@ -344,6 +412,11 @@ def resume_point(sessions: list[TutorSession]) -> ResumeOut | None:
 def percent_done(sess: TutorSession) -> int:
     if sess.summary is not None:
         return 100
+    if is_video(sess.lesson):
+        duration = sess.lesson.duration_ms
+        if sess.position_ms is None or not duration:
+            return 0
+        return min(100, round(100 * sess.position_ms / duration))
     if sess.position_scene is None:
         return 0
     scenes = sess.lesson.scenes
@@ -367,8 +440,15 @@ def get_mastery(guest_id: str, db: Session = Depends(get_db)):
     return [MasteryOut(concept=m.concept, score=m.score, attempts=m.attempts) for m in mastery_rows(db, guest_id)]
 
 
-def check_counts(db: Session, session_ids: list[str]) -> tuple[int, int]:
-    rows = db.scalars(select(CheckResult.correct).where(CheckResult.session_id.in_(session_ids))).all()
+def check_counts(db: Session, session_ids: list[str], video: bool = False) -> tuple[int, int]:
+    """(correct, total) first answers: scene check results, or checkpoint first answers for video lessons."""
+    if video:
+        q = select(CheckpointAnswer.correct).where(
+            CheckpointAnswer.session_id.in_(session_ids), CheckpointAnswer.kind == "first"
+        )
+    else:
+        q = select(CheckResult.correct).where(CheckResult.session_id.in_(session_ids))
+    rows = db.scalars(q).all()
     return sum(rows), len(rows)
 
 
@@ -382,7 +462,7 @@ def get_progress(guest_id: str, db: Session = Depends(get_db)):
         lesson = latest_lesson(db, slug)
         sessions = guest_sessions(db, guest_id, [lesson.id])
         ids = [s.id for s in sessions]
-        correct, total = check_counts(db, ids)
+        correct, total = check_counts(db, ids, is_video(lesson))
         doubts = db.scalar(select(func.count(Doubt.id)).where(Doubt.session_id.in_(ids))) if ids else 0
         out.append(
             ProgressOut(
@@ -408,7 +488,7 @@ def get_history(guest_id: str, db: Session = Depends(get_db)):
     out = []
     for s in db.scalars(q).all():
         lesson: Lesson = s.lesson
-        correct, total = check_counts(db, [s.id])
+        correct, total = check_counts(db, [s.id], is_video(lesson))
         doubts = db.scalars(select(Doubt).filter_by(session_id=s.id).order_by(Doubt.created_at)).all()
         out.append(
             HistoryOut(

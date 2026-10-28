@@ -6,20 +6,16 @@ import httpx
 
 from app.config import settings
 from app.language import STT_CODES, current_stt_language
+from app.providers.base import raise_for_status
 from app.voices import current_voice
 
 BASE_URL = "https://api.vachana.ai"
-RETRY_STATUSES = {429, 500, 503}
 
 
 async def _post(client: httpx.AsyncClient, url: str, **kwargs) -> httpx.Response:
-    for attempt in range(4):
-        resp = await client.post(url, headers={"X-API-Key-ID": settings.gnani_api_key}, **kwargs)
-        if resp.status_code not in RETRY_STATUSES:
-            break
-        await asyncio.sleep(1.5 * (attempt + 1))
-    if resp.is_error:
-        raise RuntimeError(f"Gnani {url} failed: {resp.status_code} {resp.text[:300]}")
+    """One attempt; timeouts raise httpx.TransportError and 429/5xx ProviderUnavailable, which the caller retries."""
+    resp = await client.post(url, headers={"X-API-Key-ID": settings.gnani_api_key}, **kwargs)
+    raise_for_status(resp, "Gnani")
     return resp
 
 

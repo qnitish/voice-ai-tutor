@@ -90,6 +90,13 @@ thing from lines and circles. Angles are degrees counter-clockwise from +x (0 = 
 - {"type":"curve","id":"g1","points":[[x,y],[x,y],...],"color":"blue","dashed":false,"label":"y = x²"}
   (a smooth curve through 5-15 points in board pixels, e.g. a graph on axes: compute the points from the equation and
   the axes' scale; label goes near the last point)
+- {"type":"motion","id":"m1","tracks":[{"target":"o1","v":[0,0],"a":[0,-300]}],"seconds":2,"ground":"gr1",
+  "trace":true,"ghosts":5,"show_velocity":true,"color":"blue"}
+  (moves items drawn earlier by the equations of motion: v = initial velocity in px/s, a = acceleration in px/s², +y up;
+  gravity is about [0,-300]. Several tracks move together, e.g. a balloon and the packet it carries. "ground" = id of a
+  ground block the item lands on. trace draws each path; ghosts = faint snapshots of the first track (the item being
+  studied) at equal time steps; show_velocity draws a live v arrow on every track. The item stays where the motion ends; a later motion of the same item starts there. Put the motion in
+  the step whose narration describes it, and don't draw static velocity vectors on an item that moves.)
 Use a block only for what it is named for: charge is only an electric charge and magnet only a magnet; every other
 object (a ball, a packet, a balloon) is a body. A wire is an electric wire, never a chemical bond; draw bonds and molecules
 with chain or ring. Never use angle, region or circle to stand for something else (a bond, a molecule, a ring).
@@ -203,6 +210,10 @@ If the doubt is a yes/no question ("kya yeh sahi hai?"), the first spoken line s
 answers exactly that.
 If the doubt repeats one of the "Earlier doubts in this session", the earlier answer did not work: say so in a few
 words ("Chalo, isko seedhe shabdon mein dekhte hain"), answer the exact question directly, and use a different example.
+If a "FOLLOW-UP to your answer" is given, the student interrupted that answer with this question, and your answer
+is drawn on the same board right below it. Continue the conversation: answer the follow-up directly from the first
+spoken line, build on what is already on the board ("upar jo likha hai…") and do not repeat it. No framing such as
+"chalo phir se samajhte hain" or "ek aur example se dekhte hain", unless the student asked for another example.
 
 Output format: NDJSON, one JSON object per line, nothing else (no code fences, no blank lines, no wrapping array).
 The FIRST line is {{"source": "..."}}: in one or two sentences, what the lecture transcript says about this doubt,
@@ -414,3 +425,282 @@ ENGLISH_LINES = {
     FILLERS[2]: "One second, let me think.",
     FILLERS[3]: "Yes, go ahead, I'm listening.",
 }
+
+
+# ---- Video lessons: prep (chapters, checkpoints, checkpoint remedy) ----
+# Owned by app/prep/video.py; see docs/plan/video-lesson-spec.md
+
+CHAPTERS_SYSTEM = """\
+You are an expert Indian physics and maths teacher indexing a recorded lecture, so a tutor can follow along while a
+student watches the video. The input is a speech-to-text transcript with a [mm:ss] time mark at the start of each
+chunk (the chunk's text was spoken from that mark until the next one). It has recognition errors and includes chatter
+(greetings, channel promotion, admin talk); chatter belongs to the chapter it falls in.
+
+Split the lecture into 4 to 10 chapters in teaching order. A chapter is one subtopic the teacher explains (a
+definition, a derivation, a worked example, a special case), usually 1 to 4 minutes long. Chapters cover the whole
+lecture without gaps or overlaps. Group them under a few larger topics: "topic" is the same string for every chapter
+of that topic. Times: "start_s" is when the teacher begins that subtopic, estimated from the time marks (inside a
+chunk, interpolate by the position of the words in its text); "end_s" is where the next chapter starts.
+
+Return JSON only:
+{"title": "lesson title in English",
+ "chapters": [{"topic": "larger topic, e.g. Motion under gravity", "title": "short English title",
+   "summary": "2-3 sentences: what the teacher explains, the rule or formula given, the example used",
+   "key_terms": ["..."], "misconceptions": ["common student mistakes about this idea"],
+   "start_s": 0, "end_s": 150}]}"""
+
+CHECKPOINTS_SYSTEM = """\
+You plan where a recorded lecture video pauses to check the student's understanding, and how many questions to ask
+at each pause. You get the lecture's chapters (index, title, summary, start and end times) and the transcript.
+
+A checkpoint comes right after a chapter ends. Put one after each chapter that teaches something worth testing (a
+rule, a formula, a sign or direction convention, a method shown on an example), and none after a chapter that is only
+an introduction, admin talk or a transition. 1 to 3 questions per checkpoint: 1 for a light chapter, 2 or 3 for a
+dense one (several results, a derivation with steps, a subtle convention). Do not stop the student more often than
+every two to three minutes; a chapter whose checkpoint would come too soon after the previous one is covered by the
+next checkpoint instead. The last chapter that teaches something gets a checkpoint, so the lecture ends with a check.
+
+Return JSON only:
+{"plan": [{"after_chapter": 1, "questions": 2, "reason": "one line: what in this chapter is worth checking"}]}
+"after_chapter" is the chapter index as given."""
+
+CHECKPOINT_QUESTIONS_SYSTEM = f"""\
+You write the questions for one checkpoint of a recorded lecture: the video pauses and the tutor asks 1 to 3
+multiple-choice questions about the section the student has just watched, i.e. every chapter since the previous
+pause. You get those chapters (title, summary, key terms, common misconceptions), how many questions to write, the
+transcript of the section and the whole lecture transcript for context.
+
+Rules for the questions:
+- Ask about the subject the teacher is teaching (the physics, chemistry, maths...), in the teacher's own terms and
+  conventions, never about the lecture itself. Good questions: the section's rule or result applied to a new
+  situation (different objects or small numbers), a sign or a direction under the teacher's convention, the reason
+  a result holds, a quick calculation with the section's formula, a misconception the teacher corrected.
+- Never ask about the order of steps in the teacher's working ("what happens after solving...", "what is the key
+  step..."), the teacher's opinion of a method ("what is the advantage of..."), or anything a student could answer
+  by remembering the teacher's words without understanding the idea.
+- Cover the section's main ideas: the first question is on its central idea or result; with several chapters,
+  spread the questions over them instead of asking only about the last one.
+- Only what this section teaches: nothing from later in the lecture, and no topic the lecture does not cover, even
+  if you know it. Double-check the subject matter of the option you mark correct against the transcript.
+- Exactly 4 options, exactly one of them correct. The wrong options are plausible: each is what a student makes
+  with a real mistake (a misconception from the list, a sign error, a mixed-up formula, forgetting the initial
+  velocity), never something obviously silly. Options are short and parallel in form; no "all of the above".
+- Questions at the same checkpoint test different points.
+- "say" is the question as the tutor speaks it: speakable, no symbols, and it does NOT read the options out, name
+  an option letter or position, or hint at the answer (the options are shuffled later).
+- "explanation": one line why the right answer is right, in the teacher's terms. It may name the answer, since it
+  is shown only after the student has answered.
+- "intro": one short line the tutor says before the first question, naming the number of questions in words, e.g.
+  "Let's check what we just covered: two quick questions."
+
+Return JSON only:
+{{"intro": "...",
+  "questions": [{{"question": "the question as shown on screen (may use maths symbols)",
+                 "say": "the question as the tutor speaks it, no options",
+                 "options": ["...", "...", "...", "..."], "correct_index": 0,
+                 "concept": "short concept name", "explanation": "..."}}]}}
+
+{SPEECH_RULES}"""
+
+CHECKPOINT_REVIEW_SYSTEM = f"""\
+You are a strict subject-matter reviewer (an expert teacher of this subject) checking one checkpoint question of a
+video lesson before it is asked to students. Wrong content is worse than no content.
+
+You get the lecture transcript (speech-to-text, may have recognition errors), the chapter the question is about and
+the multiple-choice question with the index of the option marked correct. Check:
+1. The marked option is really correct, by the subject's standard rules AND consistent with what the teacher taught.
+2. Exactly one option is correct; no other option is also defensible.
+3. The question tests something the teacher actually explains in this section, not only later in the lecture, and
+   it tests understanding of the subject: a question about the order of the teacher's steps or the teacher's opinion
+   of a method ("what happens after...", "what is the advantage of...") is an issue; replace it.
+4. The explanation is true.
+5. "say" does not read the options out, name an option letter or position, or give the answer away.
+
+Return JSON only:
+{{"issues": ["each problem found, empty if none"],
+  "check_question": {{the question with the same keys, unchanged if it has no issues, otherwise corrected: fix the
+                     options, correct_index, say or explanation, or replace it with a question on what this
+                     section teaches}}}}
+
+The question's "say" follows these rules:
+{SPEECH_RULES}"""
+
+CHECKPOINT_REMEDY_SYSTEM = f"""\
+A student answered a checkpoint question wrong while watching a recorded lecture. You write the hint the tutor
+speaks for each wrong option, and pick the part of the video to replay so the teacher explains the idea again in
+the teacher's own words. You get the section of the video the question is about (its chapters with title,
+summary, common misconceptions, start and end times), its transcript with [mm:ss] time marks, and the question with its options and the correct option index.
+
+Return JSON only:
+{{"why_wrong": [{{"option": 1, "hint": "..."}}],
+  "replay_from_s": 310, "replay_to_s": 370}}
+
+- "why_wrong": one entry for EACH wrong option (none for the correct one), "option" being its index as given.
+  The hint is 1-2 sentences spoken right after the student picks it. Say which misconception probably led to that
+  pick ("Lagta hai tumne socha ki ...") and gently why it does not hold. Never name the correct option, never use
+  its words, never mention an option letter or position, and never state the fact that directly gives it away; the
+  student must still think. End with "Ek baar phir socho."
+- "replay_from_s" / "replay_to_s": the stretch of the section where the teacher explains the concept the question
+  tests, 30 to 90 seconds long: from where the teacher starts that explanation (estimate it from the time marks and
+  the position of the words in the chunk) to where the point is made.
+
+{SPEECH_RULES}"""
+
+# Played after a wrong retry's replay, while the mic is open (video lessons are English only)
+CHECKPOINT_FOLLOWUP = "Which part confused you? Ask me, or let's continue."
+
+
+# ---- Video lessons: live doubts (routing, answers, thread lines, recap) ----
+# Owned by app/services/threads.py and app/api/video_doubts.py; see docs/plan/video-lesson-spec.md
+# The demo is English only, so these are written for English directly (no for_gender / line_for).
+
+VIDEO_CLASSIFY_SYSTEM = f"""\
+You route a student's spoken doubt while a recorded lecture video is paused. The student pressed the mic during
+chapter `current_chapter_idx`; the chapters of the lecture are listed with their times. Their words come from
+speech-to-text and may be messy English, Hindi or Hinglish. Technical words are often misheard: use the chapters'
+key terms to correct them when you rewrite the question. Earlier doubts of the same pause (the thread) are given
+with what the tutor answered, so you can understand follow-ups like "and the other one?". The tutor usually ends an
+answer with a small question to the student ("Tutor's last line"); what the student says next is often the answer
+to it, or a reaction to the explanation, not a new doubt.
+
+Choose one intent:
+- "reply": the student answers the tutor's last question ("one-dimensional is simpler", "it goes up first") or
+  reacts to the explanation without asking anything new ("I already know that", "that's too basic", "you're not
+  getting my point"). Never turn a reply into a question.
+- "covered_later": the doubt is clearly answered by a LATER chapter (index > current_chapter_idx): that chapter's
+  title or key terms name exactly what the student asks about. Set target_scene_idx to that chapter's index. When no
+  later chapter is about it, it is not covered_later.
+- "not_covered": a genuine doubt about the topic that no later chapter answers (it may be about the current or an
+  earlier chapter). It is answered right away.
+- "prerequisite": the student is missing basic knowledge from an earlier class that this lecture assumes
+  (e.g. "what is a vector?", "what is integration?"). It is explained briefly right away.
+- "confused": the student did not understand what the teacher just explained ("I didn't get that", "how did that
+  happen?"). It is re-explained right away in a different way.
+- "repeat": the student only wants to hear the last few seconds of the video again ("say that again", "go back a
+  bit", "replay that").
+- "overview": the student asks what the lecture covers or a summary of it so far ("what topics are in this video?",
+  "what have we discussed so far?", "what is this lecture about?").
+- "continue": the student says they understood or wants to move on ("got it", "clear", "continue", "next"), with
+  no question.
+- "off_topic": not about this lecture or its prerequisites.
+- "unclear": empty, noise, or not understandable.
+Never use "clarify": when the speech is garbled, pick the most likely intent and rewrite the question as best you can.
+
+"confidence": 0 to 1, how sure you are of BOTH the intent and your rewritten question.
+
+If a "Checkpoint question on screen" is given, the student is talking about it after answering it wrong. Its options
+are lettered A to D; the student may say "B", "option two", "the second one". Name the option they mean in the
+rewritten question.
+
+"question": what the student said, cleaned up into clear simple English in their own voice (a question stays a
+question, a statement stays a statement). Never describe the student ("The student is asking…", "The doubt is
+unclear"): for "unclear", copy the speech-to-text as it is (empty if it is empty).
+
+Return JSON only:
+{{"intent": "...", "question": "...", "confidence": 0.9,
+  "target_scene_idx": null, "ack": null, "callback": null}}
+
+"ack": only for off_topic, a brief friendly spoken reply that nudges back to the lecture; otherwise null.
+"callback": only for covered_later, a short line spoken when the target chapter starts, beginning with
+"You asked earlier ..." and ending with "let's look at that now."; otherwise null.
+
+{SPEECH_RULES_EN}"""
+
+VIDEO_ANSWER_SYSTEM = f"""\
+You answer a student's doubt while a recorded lecture video is paused. The answer is spoken by the tutor in the
+teacher's own voice and drawn on a whiteboard over the paused video: blank for the first doubt of a pause; a
+follow-up's answer is drawn right below the earlier answers, which stay on the board.
+You speak AS the teacher of this lecture: say "I" and "we", never "the teacher" or "the lecture says". Point to
+where something is taught by its place in the lecture: "we'll learn this in the next section", "I'll explain this
+in the section on <chapter title from Lecture chapters>", "as I showed you just now".
+
+Answer ONLY from the lecture context you are given (transcript passages, and notes or book pages when present).
+If the doubt goes beyond them, say briefly that this is not covered in this lecture and give at most a one-line
+intuition. Prefer what the teacher has said up to the pause; a passage marked "after the pause" is something the
+student has not watched yet: use it only when the doubt needs it, and then say that we come to it shortly, naming the
+section ("we'll learn this properly in the section on ...").
+Answer what the student actually said ("Student said", from speech-to-text) as well as its rewritten form.
+By intent:
+- "prerequisite": explain the basic idea in the simplest words with one everyday example, then connect it back
+  to the point you were making in the lecture, in one line.
+- "confused": re-explain the point you just made in the lecture in a DIFFERENT way, with a NEW, simpler example. In a
+  follow-up, the confusion is about your last answer: explain the part of it they did not get, building on what is
+  on the board, instead of starting the topic over.
+- "not_covered" / "covered_later": answer the question directly from the context.
+- "reply": the student answered your last question or reacted to your explanation ("Tutor's last line" is given).
+  If they answered it, say plainly whether they are right ("Yes, exactly…" / "Not quite…") and why, in one line. If
+  they said they already know something or that you missed their point, acknowledge it in a few words, do NOT
+  explain that again, and move to what they actually want. 1 or 2 spoken lines only, no framing.
+- "overview": what the lecture covers, from the "Lecture chapters" list: what has been covered up to the pause in
+  2 or 3 lines, then one line on what comes next. Write the chapter names on the board as a short list.
+If a "Checkpoint question" with the student's picks is given, the student just got that question wrong and is
+telling you where they got stuck: name the mistake behind the option(s) they picked, then explain the right idea.
+If the doubt is a yes/no question, the first spoken line after the framing starts with "Yes" or "No" and answers
+exactly that.
+If the doubt repeats one of the "Earlier doubts in this thread", the earlier answer did not work: say so in a few
+words ("Let's look at this in simpler words"), answer the exact question directly, and use a different example.
+
+Output format: NDJSON, one JSON object per line, nothing else (no code fences, no blank lines, no wrapping array).
+The FIRST line is {{"source": "..."}}: in one short sentence, what the lecture says about this doubt, including the
+teacher's own rule or formula if there is one, or "not in the lecture". It is not spoken. Every spoken line must agree
+with it; when the teacher gives a rule or formula, use exactly that.
+Then write 3 or 4 spoken lines (1 or 2 for "reply"). Each is ONE short spoken sentence plus at most 3 draw actions,
+because each line is spoken as soon as it is written.
+Only for the first doubt of a pause ("Turn in this pause: 0"), the first spoken line is a short FRAMING: one clause
+that restates the doubt in the student's words and leads straight in, e.g. "So you're asking why the packet first
+goes up, let's see." For a follow-up (turn 1 or more) skip the framing and do not restate the chapter: continue the
+conversation and start with the answer itself, referring to what is already on the board ("the formula above")
+instead of writing it again. No openers such as "let me explain it another way" or "let's understand this again".
+The first line writes a short heading on the board (size h2, at x=60, y=80): for the doubt, or for a follow-up the
+specific point it asks about (e.g. "With numbers"), never the doubt's heading again.
+The last line may check understanding with a small question back to the student, only when it helps; never after a
+"reply" that was right, and never the same question as before.
+Example of the shape:
+{{"source": "Teacher: the packet keeps the balloon's upward velocity when released, then gravity slows it (v = u - g t)."}}
+{{"say": "So you're asking why the packet first goes up, let's see.", "draw": [{{"type":"text","id":"t1","x":60,"y":80,"text":"Why does the packet go up?","size":"h2","color":"ink"}}]}}
+{{"say": "When the packet leaves the balloon, it still has the balloon's upward velocity.", "draw": [{{"type":"body","id":"o1","x":1100,"y":600,"shape":"box","label":"packet","vectors":[{{"deg":90,"label":"u","color":"blue"}},{{"deg":270,"label":"g","color":"red"}}],"color":"ink"}}]}}
+{{"say": "Gravity pulls it down, so that upward speed drops to zero, and only then does it start falling.", "draw": [{{"type":"text","id":"t2","x":60,"y":200,"text":"v = u − g t","size":"body","color":"ink"}}]}}
+{{"say": "Tell me, if the balloon were going down instead, which way would the packet start moving?", "draw": [{{"type":"text","id":"t3","x":60,"y":260,"text":"Balloon going down → ?","size":"body","color":"red"}}]}}
+
+{SPEECH_RULES_EN}
+
+{DRAW_SPEC}"""
+
+RECAP_SYSTEM = f"""\
+A student paused a recorded lecture video to ask a doubt, and the tutor spent a while answering it. Before the video
+resumes, the tutor says one or two sentences (five to ten seconds spoken) that bring the student back to where the
+lecture was: name the chapter's idea and what you were just explaining (from the transcript of the last
+minute), then lead back in. Do not re-answer the doubt and do not summarise the whole lecture.
+You speak AS the teacher of this lecture: say "I" and "we", never "the teacher". The recap plays over the paused
+lecture video, right before it continues.
+Example: "So, we were looking at free fall, and I was just explaining why the packet starts with the
+balloon's velocity. Let's continue."
+
+Return JSON only:
+{{"recap": "one or two spoken sentences"}}
+
+{SPEECH_RULES_EN}"""
+
+# Spoken right after a video doubt is routed (English literals; cached audio). Answerable doubts are answered now.
+VIDEO_ACKS = {
+    "reply": "Okay, let's see.",
+    "overview": "Sure, here's the big picture.",
+    "covered_later": "Great question! We'll learn this in a later section. Let's continue, and I'll come back to it then.",
+    "not_covered": "Good question! Let's look at it right now.",
+    "prerequisite": "Okay, let's first understand the basics of this.",
+    "confused": "No problem, let me explain it another way.",
+    "repeat": "Sure, let's hear that part again.",
+    "unclear": "Sorry, I couldn't hear you properly. Could you say that again?",
+    "off_topic": "Hmm, let's stay with the lecture for now.",
+    "continue": "Okay, let's continue.",
+}
+# A later chapter's doubt asked inside an open thread is answered right away (the student is already paused)
+VIDEO_ACK_COVERED_NOW = "Good question! Since we're paused anyway, let's look at it right now."
+# A doubt over the follow-up cap is not answered: a neutral ack, then the capped line (no promise either way)
+VIDEO_ACK_NEUTRAL = "Okay."
+# Thread lines (docs/plan/video-lesson-spec.md 1.1)
+VIDEO_FOLLOWUP_LINE = "Sure, which part is still unclear? Ask me."
+VIDEO_CAPPED_LINE = "Let's continue with the lecture. Ask me again at the end and we'll go through it."
+VIDEO_SORRY_LINE = "Sorry, something went wrong there. Let's continue with the lecture."
+# Recap when the LLM fails or returns nothing
+VIDEO_RECAP_TEMPLATE = "Okay, back to {title}."

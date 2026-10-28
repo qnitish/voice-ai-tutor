@@ -91,6 +91,18 @@ export type DrawAction = Placed &
       color: Color
     }
   | { type: 'ground'; id: string; x: number; y: number; w: number; label: string | null }
+  // Moves earlier items by the equations of motion (engine/motion.ts); v in px/s, a in px/s², +y up
+  | {
+      type: 'motion'
+      id: string
+      tracks: { target: string; v: Point; a: Point }[]
+      seconds: number
+      ground: string | null
+      trace: boolean
+      ghosts: number
+      show_velocity: boolean
+      color: Color
+    }
   )
 
 export type Bond = '-' | '=' | '≡'
@@ -150,7 +162,15 @@ export interface Lesson {
   language: string
   /** Language, voice, build ("v2") and build note, shown in the header */
   tags?: string[]
+  /** Which whiteboard draws it: components/Board (SVG) or components/SkiaBoard (CanvasKit) */
+  renderer?: 'svg' | 'skia'
   scenes: Scene[]
+  /** 'video': the recorded lecture plays (scenes is empty); see docs/plan/video-lesson-spec.md */
+  kind?: LessonKind
+  video?: VideoInfo | null
+  chapters?: Chapter[]
+  checkpoints?: Checkpoint[]
+  policy?: PlayerPolicy | null
 }
 
 export interface LessonSummary {
@@ -161,6 +181,7 @@ export interface LessonSummary {
   language: string
   /** Language, voice, build ("v2") and build note, shown on the card */
   tags?: string[]
+  kind?: LessonKind
 }
 
 export interface Guest {
@@ -182,6 +203,8 @@ export interface Resume {
   session_id: string
   scene_idx: number
   step_idx: number
+  /** Video lessons: where playback resumes */
+  position_ms?: number | null
 }
 
 /** A session as saved on the server, for resuming with its earlier doubts. */
@@ -217,7 +240,8 @@ export interface LessonProgress {
 
 export interface Spoken {
   text: string
-  audio_url: string
+  /** Missing/null when TTS failed for a fixed line: the player shows the text for a moment instead */
+  audio_url?: string | null
   duration_ms: number
 }
 
@@ -231,6 +255,9 @@ export type Intent =
   | 'off_topic'
   | 'unclear'
   | 'clarify'
+  // Video lessons only: an answer / reaction to the tutor, and "what does the lecture cover?"
+  | 'reply'
+  | 'overview'
 /** "now" plays the answer immediately; "replay" restarts the current step */
 export type AnswerWhen = 'none' | 'now' | 'replay' | 'step_end' | 'scene_end' | 'target_scene'
 
@@ -241,7 +268,8 @@ export interface QuestionResult {
   intent: Intent
   target_scene_idx: number | null
   answer_when: AnswerWhen
-  ack: Spoken
+  /** null for a follow-up answered on the board right away */
+  ack: Spoken | null
   callback: Spoken | null
 }
 
@@ -257,4 +285,124 @@ export interface SessionSummary {
   weak_concepts: string[]
   revise: string[]
   speech: Spoken
+}
+
+// ---- Video lessons (mirrors backend/app/schemas.py; docs/plan/video-lesson-spec.md) ----
+
+export type LessonKind = 'generated' | 'video'
+
+export interface VideoInfo {
+  url: string
+  duration_ms: number
+}
+
+export interface Chapter {
+  idx: number
+  topic: string
+  title: string
+  summary: string
+  key_terms: string[]
+  start_ms: number
+  end_ms: number
+}
+
+export interface ReplayRange {
+  start_ms: number
+  end_ms: number
+}
+
+export interface CheckpointQuestion {
+  question: string
+  say: string
+  audio_url: string
+  duration_ms: number
+  options: string[]
+  correct_index: number
+  concept: string
+  explanation: string
+  /** Hint per option after a wrong pick (null for the correct one) */
+  why_wrong: (Spoken | null)[]
+  /** The teacher explaining this concept, replayed after a second wrong pick */
+  replay: ReplayRange | null
+  /** Generated re-explanation on the overlay board, after the replay */
+  reteach: Clip[]
+  /** "Which part confused you? Ask me, or let's continue." */
+  followup: Spoken | null
+}
+
+export interface Checkpoint {
+  idx: number
+  at_ms: number
+  chapter_idx: number
+  intro: Spoken
+  questions: CheckpointQuestion[]
+}
+
+export interface PlayerPolicy {
+  max_followups: number
+  recap_after_turns: number
+  recap_after_seconds: number
+  rewind_ms: number
+  /** An unanswered "Got it?" prompt ends the thread after this long */
+  idle_ms: number
+}
+
+export type ThreadStatus = 'open' | 'resolved' | 'capped' | 'abandoned'
+
+export interface Thread {
+  id: string
+  status: ThreadStatus
+  turns: number
+  audio_ms: number
+  can_follow_up: boolean
+  /** Played before resuming when the thread was long */
+  recap: Spoken | null
+  /** A line to play now ("Which part is still unclear?", or the capped "Let's continue…") */
+  line: Spoken | null
+}
+
+export type VideoAnswerWhen = 'now' | 'chapter_end' | 'target_chapter' | 'replay' | 'none'
+
+export interface VideoQuestionResult {
+  doubt_id: string
+  thread_id: string
+  turn: number
+  transcript: string
+  question: string
+  intent: Intent
+  answer_when: VideoAnswerWhen
+  target_chapter_idx: number | null
+  /** covered_later: when the callback plays */
+  target_ms: number | null
+  /** repeat: where the video seeks back to */
+  replay_from_ms: number | null
+  /** null for a follow-up answered now: its answer continues on the board without a canned line */
+  ack: Spoken | null
+  callback: Spoken | null
+  thread: Thread
+}
+
+export interface AnsweredQuestion {
+  checkpoint_idx: number
+  question_idx: number
+  kind: 'first' | 'retry' | 'skip'
+  correct: boolean
+}
+
+export interface VideoStateDoubt {
+  id: string
+  at_ms: number
+  thread_id: string | null
+  turn: number
+  question: string
+  intent: string
+  answered: boolean
+}
+
+export interface VideoSessionState {
+  session_id: string
+  completed: boolean
+  position_ms: number | null
+  answered: AnsweredQuestion[]
+  doubts: VideoStateDoubt[]
 }

@@ -3,7 +3,7 @@
 from sqlalchemy import func, select
 from sqlalchemy.orm import Session
 
-from app.db import Lesson, Scene, Step
+from app.db import Chapter, Checkpoint, Lesson, Scene, Step
 from app.quiz import shuffle_checks
 
 
@@ -16,6 +16,7 @@ def publish_lesson(
     voice: str | None = None,
     language: str = "hinglish",
     label: str | None = None,
+    renderer: str = "svg",
 ) -> Lesson:
     """Add a new version of the lesson; earlier versions and their sessions are kept. Caller commits."""
     latest = db.scalar(select(func.max(Lesson.version)).filter_by(slug=slug)) or 0
@@ -23,7 +24,14 @@ def publish_lesson(
     twins = shuffle_checks([(c or {}).get("twin") for c in checks], seed=f"{slug}:twin")
     checks = [{**c, "twin": t} if c and t else c for c, t in zip(checks, twins)]
     lesson = Lesson(
-        slug=slug, version=latest + 1, title=title, transcript=transcript, voice=voice, language=language, label=label
+        slug=slug,
+        version=latest + 1,
+        title=title,
+        transcript=transcript,
+        voice=voice,
+        language=language,
+        label=label,
+        renderer=renderer,
     )
     for si, (scene, check) in enumerate(zip(scenes, checks)):
         lesson.scenes.append(
@@ -38,6 +46,58 @@ def publish_lesson(
                     for i, s in enumerate(scene["steps"])
                 ],
             )
+        )
+    db.add(lesson)
+    db.flush()
+    return lesson
+
+
+def publish_video_lesson(
+    db: Session,
+    slug: str,
+    title: str,
+    transcript: str,
+    video_url: str,
+    duration_ms: int,
+    chapters: list[dict],
+    checkpoints: list[dict],
+    voice: str | None = None,
+    language: str = "english",
+    label: str | None = None,
+) -> Lesson:
+    """Add a new version of a video lesson (schemas.ChapterOut / CheckpointOut shaped dicts, idx = list order).
+
+    Caller commits.
+    """
+    latest = db.scalar(select(func.max(Lesson.version)).filter_by(slug=slug)) or 0
+    lesson = Lesson(
+        slug=slug,
+        version=latest + 1,
+        title=title,
+        transcript=transcript,
+        voice=voice,
+        language=language,
+        label=label,
+        kind="video",
+        video_url=video_url,
+        duration_ms=duration_ms,
+    )
+    for i, c in enumerate(chapters):
+        lesson.chapters.append(
+            Chapter(
+                idx=i,
+                topic=c["topic"],
+                title=c["title"],
+                summary=c.get("summary", ""),
+                key_terms=c.get("key_terms", []),
+                misconceptions=c.get("misconceptions", []),
+                start_ms=c["start_ms"],
+                end_ms=c["end_ms"],
+            )
+        )
+    for i, cp in enumerate(checkpoints):
+        lesson.checkpoints.append(
+            Checkpoint(idx=i, at_ms=cp["at_ms"], chapter_idx=cp["chapter_idx"], intro=cp["intro"], questions=cp["questions"])
         )
     db.add(lesson)
     db.flush()

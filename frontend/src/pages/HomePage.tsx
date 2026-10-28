@@ -1,4 +1,4 @@
-import { BookOpen, Play } from 'lucide-react'
+import { BookOpen, Play, Video } from 'lucide-react'
 import { type FormEvent, useEffect, useState } from 'react'
 import { toast } from 'sonner'
 
@@ -11,7 +11,7 @@ import { Label } from '@/components/ui/label'
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select'
 import { api } from '@/lib/api'
 import { type Language, languageOf } from '@/lib/i18n'
-import type { LessonProgress, LessonSummary } from '@/lib/types'
+import type { LessonKind, LessonProgress, LessonSummary } from '@/lib/types'
 import { useGuestStore } from '@/store/guest'
 
 const LANGUAGES: { value: Language; label: string }[] = [
@@ -113,7 +113,11 @@ function GuestForm() {
   )
 }
 
-export function HomePage({ onStart }: { onStart: (slug: string) => void }) {
+/** A video lesson's kind defaults to generated; the "Video" tag goes first so the card type is seen at a glance. */
+const kindOf = (l: LessonSummary): LessonKind => l.kind ?? 'generated'
+const tagsOf = (l: LessonSummary) => (kindOf(l) === 'video' ? ['Video', ...(l.tags ?? [])] : l.tags)
+
+export function HomePage({ onStart }: { onStart: (slug: string, kind: LessonKind) => void }) {
   const { guest, setGuest } = useGuestStore()
   const [lessons, setLessons] = useState<LessonSummary[] | null>(null)
   const [progress, setProgress] = useState<Record<string, LessonProgress>>({})
@@ -176,14 +180,15 @@ export function HomePage({ onStart }: { onStart: (slug: string) => void }) {
       <div className="grid gap-4 sm:grid-cols-2">
         {shown?.map((l) => {
           const p = progress[l.slug]
+          const video = kindOf(l) === 'video'
           return (
             <Card key={l.slug}>
               <CardHeader>
-                <BookOpen className="text-muted-foreground mb-2 size-5" />
+                {video ? <Video className="text-muted-foreground mb-2 size-5" /> : <BookOpen className="text-muted-foreground mb-2 size-5" />}
                 <CardTitle className="leading-snug">{l.title}</CardTitle>
-                <LessonTags tags={l.tags} />
+                <LessonTags tags={tagsOf(l)} />
                 <CardDescription>
-                  {l.scene_count} scenes
+                  {l.scene_count} {video ? 'chapters' : 'scenes'}
                   {p && p.checks_total > 0 && ` · ${p.checks_correct}/${p.checks_total} checks correct`}
                 </CardDescription>
               </CardHeader>
@@ -194,8 +199,8 @@ export function HomePage({ onStart }: { onStart: (slug: string) => void }) {
                 </CardContent>
               )}
               <CardFooter className="mt-4">
-                <Button onClick={() => onStart(l.slug)}>
-                  <Play className="size-4" /> {p?.resume ? 'Continue lesson' : 'Start lesson'}
+                <Button onClick={() => onStart(l.slug, kindOf(l))}>
+                  <Play className="size-4" /> {p?.resume ? 'Continue' : 'Start'} {video ? 'lecture' : 'lesson'}
                 </Button>
               </CardFooter>
             </Card>
