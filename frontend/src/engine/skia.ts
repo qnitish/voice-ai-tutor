@@ -141,7 +141,7 @@ export class SkiaPainter {
   private draw() {
     const surface = this.surface
     if (!surface) return
-    const { drawn, active, clipTime, layer } = usePlayer.getState()
+    const { drawn, active, clipTime, layer, boardScroll } = usePlayer.getState()
     const c = surface.getCanvas()
     const { width, height } = this.canvas
     // Fit the board like the SVG's viewBox (xMidYMid meet)
@@ -150,20 +150,23 @@ export class SkiaPainter {
     c.save()
     c.translate((width - BOARD_W * scale) / 2, (height - BOARD_H * scale) / 2)
     c.scale(scale, scale)
-    this.background(c, layer)
+    this.background(c, layer, boardScroll)
+    // Follow-up answers stack below the first: the board scrolls up, and only its own area is painted
+    c.clipRect(this.ck.XYWHRect(0, 0, BOARD_W, BOARD_H), this.ck.ClipOp.Intersect, true)
+    c.translate(0, -boardScroll)
     for (const item of frameOf(drawn, active, clipTime)) this.item(c, item)
     c.restore()
     surface.flush()
   }
 
-  private background(c: Canvas, layer: 'lesson' | 'doubt') {
+  private background(c: Canvas, layer: 'lesson' | 'doubt', scroll: number) {
     const ck = this.ck
     this.fill.setColor(this.color(BOARD_BG[layer]))
     c.drawRect(ck.XYWHRect(0, 0, BOARD_W, BOARD_H), this.fill)
     this.stroke.setColor(this.color(GRID.color, GRID.opacity))
     this.stroke.setStrokeWidth(1)
     for (let x = 0; x <= BOARD_W; x += GRID.step) c.drawLine(x, 0, x, BOARD_H, this.stroke)
-    for (let y = 0; y <= BOARD_H; y += GRID.step) c.drawLine(0, y, BOARD_W, y, this.stroke)
+    for (let y = -(scroll % GRID.step); y <= BOARD_H; y += GRID.step) if (y >= 0) c.drawLine(0, y, BOARD_W, y, this.stroke)
   }
 
   private item(c: Canvas, item: FrameItem) {

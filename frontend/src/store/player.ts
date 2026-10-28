@@ -57,6 +57,8 @@ interface PlayerState {
   /** Items animating with the current clip */
   active: TimedAction[]
   clipTime: number
+  /** How far the board has scrolled up (board units) to make room for follow-up answers below */
+  boardScroll: number
   caption: string
   doubts: DoubtView[]
   check: CheckView | null
@@ -74,6 +76,7 @@ export const initialPlayerState: PlayerState = {
   drawn: [],
   active: [],
   clipTime: 0,
+  boardScroll: 0,
   caption: '',
   doubts: [],
   check: null,

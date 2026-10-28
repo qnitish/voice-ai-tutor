@@ -59,12 +59,14 @@ export const api = {
   savePosition: (sessionId: string, sceneIdx: number, stepIdx: number) =>
     http.post(`/sessions/${sessionId}/position`, { scene_idx: sceneIdx, step_idx: stepIdx }),
 
-  askQuestion: (sessionId: string, audio: Blob, sceneIdx: number, stepIdx: number, duringCheck = false) => {
+  /** followUpOf: the doubt whose answer was playing when the student asked */
+  askQuestion: (sessionId: string, audio: Blob, sceneIdx: number, stepIdx: number, duringCheck = false, followUpOf: string | null = null) => {
     const form = new FormData()
     form.append('audio', audio, 'question.webm')
     form.append('scene_idx', String(sceneIdx))
     form.append('step_idx', String(stepIdx))
     form.append('during_check', String(duringCheck))
+    if (followUpOf) form.append('follow_up_of', followUpOf)
     return http.post<QuestionResult>(`/sessions/${sessionId}/questions`, form).then((r) => r.data)
   },
   /** kind: first answer, a second try after the hint, or the twin question */

@@ -52,6 +52,8 @@ RECENT_DOUBTS = 5
 KEEP_DURING_CHECK = {"off_topic", "unclear", "continue"}
 # Earlier doubts (with what was answered) shown to the answer, so a repeated doubt is noticed
 ANSWER_HISTORY = 3
+# A follow-up asked during an answer with one of these intents is answered right away, below that answer
+FOLLOW_UP_NOW = {"covered_later", "not_covered", "prerequisite", "confused"}
 
 
 def lesson_context(lesson: Lesson) -> str:
@@ -85,6 +87,28 @@ def check_on_screen(db: Session, sess: TutorSession, scene_idx: int) -> str:
         + "".join(f"{letters[i]}. {o}\n" for i, o in enumerate(q["options"]))
         + f"Student picked (wrong): {picked or 'none'}; correct: {letters[q['correct_index']]}\n\n"
     )
+
+
+def follow_up_chain(db: Session, doubt: Doubt) -> list[Doubt]:
+    """The doubts this one follows up on, oldest first (the first asked during the lesson, then its follow-ups)."""
+    chain: list[Doubt] = []
+    parent_id = doubt.follow_up_of
+    while parent_id and len(chain) < 5:
+        parent = db.get(Doubt, parent_id)
+        if not parent:
+            break
+        chain.append(parent)
+        parent_id = parent.follow_up_of
+    return chain[::-1]
+
+
+def on_board(chain: list[Doubt]) -> str:
+    """What the tutor said for each doubt in a follow-up chain; it is all still on the board."""
+    lines = []
+    for d in chain:
+        said = " ".join(a["say"] for a in d.answer) if d.answer else "(still being answered)"
+        lines.append(f"- Doubt: {d.question}\n  Tutor answered: {said}")
+    return "\n".join(lines)
 
 
 def routing_prompt(
@@ -121,7 +145,13 @@ def validate(cls: Classification, scene_idx: int, lesson: Lesson) -> Classificat
 
 
 async def classify(
-    db: Session, sess: TutorSession, scene_idx: int, step_idx: int, transcript: str, during_check: bool = False
+    db: Session,
+    sess: TutorSession,
+    scene_idx: int,
+    step_idx: int,
+    transcript: str,
+    during_check: bool = False,
+    chain: list[Doubt] | None = None,
 ) -> tuple[Classification, bool]:
     """Route the doubt. Returns (classification, needs_clarify)."""
     earlier = db.scalars(
@@ -137,6 +167,12 @@ async def classify(
         return Classification(intent="unclear", question=""), False
     on_screen = check_on_screen(db, sess, scene_idx) if during_check else ""
     user = routing_prompt(sess.lesson, scene_idx, step_idx, earlier, transcript, on_screen)
+    if chain:
+        user = (
+            "The student is asking a FOLLOW-UP while the tutor is answering their doubt (the answer is on the board). "
+            "\"Samajh nahi aaya\", \"kyun?\", \"matlab?\" etc. refer to that answer, so classify them as confused.\n"
+            f"{on_board(chain)}\n\n{user}"
+        )
     system = for_gender(CLASSIFY_SYSTEM, get_voice(sess.lesson.voice).gender, sess.lesson.language)
     cls = await llm.complete_json(system, user, Classification, temperature=0.2, model=settings.routing_deployment)
     return cls, cls.confidence < CLARIFY_BELOW and cls.intent in CLARIFIABLE
@@ -150,10 +186,17 @@ async def ask_question(
     scene_idx: int = Form(),
     step_idx: int = Form(),
     during_check: bool = Form(False),
+    follow_up_of: str | None = Form(None),
     db: Session = Depends(get_db),
 ):
     sess = get_session(db, session_id)
     lesson = sess.lesson
+    parent = db.get(Doubt, follow_up_of) if follow_up_of else None
+    if parent and parent.session_id != sess.id:
+        parent = None
+    if parent:
+        # Answered where the doubt it follows was asked
+        scene_idx, step_idx = parent.scene_idx, parent.step_idx
     stt = get_stt()
     wav, duration_ms = await asyncio.to_thread(to_wav, await audio.read(), STT_RATE)
     if duration_ms > stt.max_seconds * 1000:
@@ -161,9 +204,13 @@ async def ask_question(
     # The student is expected to speak the lesson's language
     transcript = await transcribe(wav, lesson.language, session_id=sess.id) if duration_ms > 300 else ""
 
-    cls, needs_clarify = await classify(db, sess, scene_idx, step_idx, transcript, during_check)
+    chain = follow_up_chain(db, Doubt(follow_up_of=parent.id)) if parent else []
+    cls, needs_clarify = await classify(db, sess, scene_idx, step_idx, transcript, during_check, chain)
     pending = None
-    if during_check and cls.intent not in KEEP_DURING_CHECK:
+    if parent and cls.intent == "covered_later":
+        # The student is already in the answer: no promise for later, answer it there
+        cls = cls.model_copy(update={"intent": "not_covered"})
+    if during_check and not parent and cls.intent not in KEEP_DURING_CHECK:
         # On topic after a wrong answer: re-explain now (still asking back first when unsure what they meant)
         cls = cls.model_copy(update={"intent": "confused"})
     if needs_clarify:
@@ -181,6 +228,7 @@ async def ask_question(
         callback=cls.callback,
         confidence=cls.confidence,
         pending=pending,
+        follow_up_of=parent.id if parent else None,
     )
     db.add(doubt)
     scene = next((s for s in lesson.scenes if s.idx == scene_idx), None)
@@ -190,7 +238,13 @@ async def ask_question(
     db.commit()
 
     voice = lesson.voice
-    if cls.intent == "clarify":
+    answer_when = ANSWER_WHEN[cls.intent]
+    if parent and cls.intent in FOLLOW_UP_NOW:
+        answer_when = "now"
+    if parent and answer_when == "now":
+        # Continues the answer on the board: no canned ack in between
+        ack_spoken = None
+    elif cls.intent == "clarify":
         ack_spoken = await speak(clarify_ack(doubt.question, lesson.language), f"doubts/{doubt.id}_ack.wav", voice)
     elif cls.intent == "off_topic" and cls.ack:
         ack_spoken = await speak(cls.ack, f"doubts/{doubt.id}_ack.wav", voice)
@@ -209,7 +263,7 @@ async def ask_question(
         question=doubt.question,
         intent=cls.intent,
         target_scene_idx=cls.target_scene_idx,
-        answer_when=ANSWER_WHEN[cls.intent],
+        answer_when=answer_when,
         ack=ack_spoken,
         callback=callback,
     )
@@ -232,10 +286,12 @@ def check_answers(db: Session, doubt: Doubt, question: dict | None) -> str:
 
 
 def earlier_answers(db: Session, doubt: Doubt) -> str:
-    """The session's last few doubts before this one, with what the tutor answered."""
+    """The session's last few doubts before this one, with what the tutor answered (a follow-up's chain is shown apart)."""
+    chain = {d.id for d in follow_up_chain(db, doubt)}
     rows = db.scalars(
         select(Doubt)
         .filter(Doubt.session_id == doubt.session_id, Doubt.created_at < doubt.created_at, Doubt.intent != "clarify")
+        .filter(Doubt.id.notin_(chain))
         .order_by(Doubt.created_at.desc())
         .limit(ANSWER_HISTORY)
     ).all()[::-1]
@@ -246,6 +302,13 @@ def earlier_answers(db: Session, doubt: Doubt) -> str:
         said = " ".join(a["say"] for a in d.answer) if d.answer else "(not answered)"
         lines.append(f"- Doubt: {d.question}\n  Tutor answered: {said}")
     return "Earlier doubts in this session (oldest first):\n" + "\n".join(lines) + "\n\n"
+
+
+def follow_up_note(db: Session, doubt: Doubt) -> str:
+    chain = follow_up_chain(db, doubt)
+    if not chain:
+        return ""
+    return f"FOLLOW-UP to your answer, which is still on the board above (oldest first):\n{on_board(chain)}\n\n"
 
 
 def answer_prompt(db: Session, doubt: Doubt, sess: TutorSession) -> str:
@@ -259,6 +322,7 @@ def answer_prompt(db: Session, doubt: Doubt, sess: TutorSession) -> str:
         f"Current scene {scene.idx}: {scene.title}\nGoal: {scene.goal}\n"
         f"Narration so far: {' '.join(st.say for st in scene.steps[: doubt.step_idx + 1])}\n\n"
         f"{check_answers(db, doubt, scene.check_question)}"
+        f"{follow_up_note(db, doubt)}"
         f"{earlier_answers(db, doubt)}"
         f"Lesson scenes:\n{lesson_context(lesson)}\n\n"
         f"Lecture transcript:\n{lesson.transcript}"

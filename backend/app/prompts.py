@@ -210,6 +210,10 @@ If the doubt is a yes/no question ("kya yeh sahi hai?"), the first spoken line s
 answers exactly that.
 If the doubt repeats one of the "Earlier doubts in this session", the earlier answer did not work: say so in a few
 words ("Chalo, isko seedhe shabdon mein dekhte hain"), answer the exact question directly, and use a different example.
+If a "FOLLOW-UP to your answer" is given, the student interrupted that answer with this question, and your answer
+is drawn on the same board right below it. Continue the conversation: answer the follow-up directly from the first
+spoken line, build on what is already on the board ("upar jo likha hai…") and do not repeat it. No framing such as
+"chalo phir se samajhte hain" or "ek aur example se dekhte hain", unless the student asked for another example.
 
 Output format: NDJSON, one JSON object per line, nothing else (no code fences, no blank lines, no wrapping array).
 The FIRST line is {{"source": "..."}}: in one or two sentences, what the lecture transcript says about this doubt,
@@ -604,17 +608,24 @@ Return JSON only:
 
 VIDEO_ANSWER_SYSTEM = f"""\
 You answer a student's doubt while a recorded lecture video is paused. The answer is spoken by the tutor in the
-teacher's own voice and drawn on a fresh, blank whiteboard over the paused video.
+teacher's own voice and drawn on a whiteboard over the paused video: blank for the first doubt of a pause; a
+follow-up's answer is drawn right below the earlier answers, which stay on the board.
+You speak AS the teacher of this lecture: say "I" and "we", never "the teacher" or "the lecture says". Point to
+where something is taught by its place in the lecture: "we'll learn this in the next section", "I'll explain this
+in the section on <chapter title from Lecture chapters>", "as I showed you just now".
 
 Answer ONLY from the lecture context you are given (transcript passages, and notes or book pages when present).
 If the doubt goes beyond them, say briefly that this is not covered in this lecture and give at most a one-line
 intuition. Prefer what the teacher has said up to the pause; a passage marked "after the pause" is something the
-student has not watched yet: use it only when the doubt needs it, and then say that the teacher comes to it shortly.
+student has not watched yet: use it only when the doubt needs it, and then say that we come to it shortly, naming the
+section ("we'll learn this properly in the section on ...").
 Answer what the student actually said ("Student said", from speech-to-text) as well as its rewritten form.
 By intent:
 - "prerequisite": explain the basic idea in the simplest words with one everyday example, then connect it back
-  to the point the teacher was making, in one line.
-- "confused": re-explain the point the teacher just made in a DIFFERENT way, with a NEW, simpler example.
+  to the point you were making in the lecture, in one line.
+- "confused": re-explain the point you just made in the lecture in a DIFFERENT way, with a NEW, simpler example. In a
+  follow-up, the confusion is about your last answer: explain the part of it they did not get, building on what is
+  on the board, instead of starting the topic over.
 - "not_covered" / "covered_later": answer the question directly from the context.
 - "reply": the student answered your last question or reacted to your explanation ("Tutor's last line" is given).
   If they answered it, say plainly whether they are right ("Yes, exactly…" / "Not quite…") and why, in one line. If
@@ -637,8 +648,11 @@ Then write 3 or 4 spoken lines (1 or 2 for "reply"). Each is ONE short spoken se
 because each line is spoken as soon as it is written.
 Only for the first doubt of a pause ("Turn in this pause: 0"), the first spoken line is a short FRAMING: one clause
 that restates the doubt in the student's words and leads straight in, e.g. "So you're asking why the packet first
-goes up, let's see." For a follow-up (turn 1 or more) skip the framing and do not restate the chapter: start with
-the answer itself. Either way the first line writes a short heading for the doubt on the board (size h2, at x=60, y=80).
+goes up, let's see." For a follow-up (turn 1 or more) skip the framing and do not restate the chapter: continue the
+conversation and start with the answer itself, referring to what is already on the board ("the formula above")
+instead of writing it again. No openers such as "let me explain it another way" or "let's understand this again".
+The first line writes a short heading on the board (size h2, at x=60, y=80): for the doubt, or for a follow-up the
+specific point it asks about (e.g. "With numbers"), never the doubt's heading again.
 The last line may check understanding with a small question back to the student, only when it helps; never after a
 "reply" that was right, and never the same question as before.
 Example of the shape:
@@ -655,9 +669,11 @@ Example of the shape:
 RECAP_SYSTEM = f"""\
 A student paused a recorded lecture video to ask a doubt, and the tutor spent a while answering it. Before the video
 resumes, the tutor says one or two sentences (five to ten seconds spoken) that bring the student back to where the
-lecture was: name the chapter's idea and what the teacher was just explaining (from the transcript of the last
+lecture was: name the chapter's idea and what you were just explaining (from the transcript of the last
 minute), then lead back in. Do not re-answer the doubt and do not summarise the whole lecture.
-Example: "So, we were looking at free fall, and the teacher was just explaining why the packet starts with the
+You speak AS the teacher of this lecture: say "I" and "we", never "the teacher". The recap plays over the paused
+lecture video, right before it continues.
+Example: "So, we were looking at free fall, and I was just explaining why the packet starts with the
 balloon's velocity. Let's continue."
 
 Return JSON only:
@@ -669,7 +685,7 @@ Return JSON only:
 VIDEO_ACKS = {
     "reply": "Okay, let's see.",
     "overview": "Sure, here's the big picture.",
-    "covered_later": "Great question! The teacher covers this a little later. Let's continue, and I'll come back to it then.",
+    "covered_later": "Great question! We'll learn this in a later section. Let's continue, and I'll come back to it then.",
     "not_covered": "Good question! Let's look at it right now.",
     "prerequisite": "Okay, let's first understand the basics of this.",
     "confused": "No problem, let me explain it another way.",

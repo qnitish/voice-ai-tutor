@@ -303,8 +303,11 @@ async def ask_video_question(
         touch(sess)
         db.commit()
 
-        # Everything is committed: no row stays locked while the lines are synthesized or the recap is made
-        ack_spoken = await ack_for(cls, answer_when, doubt.id, voice, capped=capped)
+        # Everything is committed: no row stays locked while the lines are synthesized or the recap is made.
+        # A follow-up answered now continues the answer on the board, with no canned line in between
+        # (except that a later chapter's topic is answered early, which the student should hear).
+        follow_up = answer_when == "now" and turn > 0 and cls.intent != "covered_later"
+        ack_spoken = None if follow_up else await ack_for(cls, answer_when, doubt.id, voice, capped=capped)
 
         callback = None
         target_ms = None

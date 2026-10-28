@@ -38,9 +38,11 @@ export function MicButton({ tutor, state }: { tutor: MicHost; state?: MicState }
   const thinking = state ? state.thinking : mode === 'thinking'
   const enabled = state
     ? state.enabled
-    : check
-      ? mode === 'check' && check.followup && !check.busy
-      : mode === 'playing' || mode === 'paused' || mode === 'answering'
+    : mode === 'answering' // a follow-up on the answer board (the tutor has the final say: canAsk)
+      ? true
+      : check
+        ? mode === 'check' && check.followup && !check.busy
+        : mode === 'playing' || mode === 'paused'
 
   /** Watch the mic level; in tap mode, end the recording once the student stops talking. */
   function watchSilence(stream: MediaStream) {

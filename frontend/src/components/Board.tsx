@@ -75,6 +75,7 @@ export function Board() {
   const active = usePlayer((s) => s.active)
   const clipTime = usePlayer((s) => s.clipTime)
   const layer = usePlayer((s) => s.layer)
+  const scroll = usePlayer((s) => s.boardScroll)
 
   return (
     <svg
@@ -85,13 +86,14 @@ export function Board() {
       aria-label="Whiteboard"
     >
       <defs>
-        <pattern id="grid" width={GRID.step} height={GRID.step} patternUnits="userSpaceOnUse">
+        {/* The grid moves with the board when it scrolls */}
+        <pattern id="grid" y={-scroll} width={GRID.step} height={GRID.step} patternUnits="userSpaceOnUse">
           <path d={`M${GRID.step} 0H0V${GRID.step}`} fill="none" stroke={GRID.color} strokeWidth="1" />
         </pattern>
       </defs>
       <rect width={BOARD_W} height={BOARD_H} fill={BOARD_BG[layer]} />
       <rect width={BOARD_W} height={BOARD_H} fill="url(#grid)" opacity={GRID.opacity} />
-      {frameOf(drawn, active, clipTime).map(renderItem)}
+      <g transform={scroll ? `translate(0 ${-scroll})` : undefined}>{frameOf(drawn, active, clipTime).map(renderItem)}</g>
     </svg>
   )
 }

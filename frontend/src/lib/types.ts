@@ -268,7 +268,8 @@ export interface QuestionResult {
   intent: Intent
   target_scene_idx: number | null
   answer_when: AnswerWhen
-  ack: Spoken
+  /** null for a follow-up answered on the board right away */
+  ack: Spoken | null
   callback: Spoken | null
 }
 
@@ -375,7 +376,8 @@ export interface VideoQuestionResult {
   target_ms: number | null
   /** repeat: where the video seeks back to */
   replay_from_ms: number | null
-  ack: Spoken
+  /** null for a follow-up answered now: its answer continues on the board without a canned line */
+  ack: Spoken | null
   callback: Spoken | null
   thread: Thread
 }

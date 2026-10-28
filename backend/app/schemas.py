@@ -580,7 +580,8 @@ class QuestionOut(BaseModel):
     target_scene_idx: int | None
     # When the player should deliver the answer ("replay" restarts the current step, no answer)
     answer_when: AnswerWhen
-    ack: Spoken
+    # None for a follow-up answered on the board: its answer starts right away, without a canned line
+    ack: Spoken | None
     callback: Spoken | None = None
 
 
@@ -728,7 +729,7 @@ class VideoQuestionOut(BaseModel):
     target_chapter_idx: int | None = None
     target_ms: int | None = None  # covered_later: when the callback plays (the target chapter's start)
     replay_from_ms: int | None = None  # repeat: where the video seeks back to
-    ack: Spoken
+    ack: Spoken | None  # None for a follow-up answered now: its answer continues on the board
     callback: Spoken | None = None
     thread: ThreadOut
 

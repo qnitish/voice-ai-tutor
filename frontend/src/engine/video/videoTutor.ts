@@ -8,6 +8,7 @@
  * out, so a running sequence sees the generation change and stops, and the new question decides what happens next.
  */
 import { FADE_MS, fadeTo } from '@/engine/fade'
+import { liftBoard, scrollFor, Segment } from '@/engine/followup'
 import type { MicHost } from '@/engine/host'
 import { layoutStep } from '@/engine/layout'
 import { loadBoardFonts, schedule } from '@/engine/tutor'
@@ -65,6 +66,9 @@ interface PendingAnswer {
   notify: (() => void) | null
   /** Cuts the NDJSON stream when the answer will never be played */
   abort: AbortController
+  /** Where on the board the answer goes (set when it starts), and each clip's actions placed there */
+  segment: Segment | null
+  laid: DrawAction[][]
 }
 
 /**
@@ -73,7 +77,8 @@ interface PendingAnswer {
  */
 interface NowAnswer {
   doubtId: string
-  ack: Spoken
+  /** null for a follow-up: its answer continues on the board right away */
+  ack: Spoken | null
   thread: Thread
   answer: PendingAnswer
   /** 'ack' while the ack plays, 'answer' once the clips started */
@@ -111,6 +116,9 @@ export class VideoTutor implements MicHost {
   private holdGen = 0
   /** Where the thread in progress (or the next one) returns to */
   private threadCtx: ThreadContext = { kind: 'video', atMs: 0 }
+  /** The thread whose answers are on the board, and how many follow-ups are stacked below its first answer */
+  private boardThread: string | null = null
+  private boardSegments = 0
   /** The "now" answer being played, until its prompt is reached (resumed after an empty mic press) */
   private nowAnswer: NowAnswer | null = null
   /** Whether the prompt a mic press interrupted was waiting for a follow-up, so an empty press shows it again */
@@ -293,7 +301,7 @@ export class VideoTutor implements MicHost {
     v.currentTime = ms / 1000
     this.prevMs = ms
     setVideo({ mode: this.videoMode, positionMs: ms, chapterIdx: chapterAt(ms, this.chapters), overlay: false, caption: '' })
-    setPlayer({ layer: 'doubt', drawn: [], active: [], clipTime: 0, caption: '' })
+    setPlayer({ layer: 'doubt', drawn: [], active: [], clipTime: 0, boardScroll: 0, caption: '' })
     if (this.userPaused) return
     v.volume = 0
     v.play().catch((e) => {
@@ -385,7 +393,7 @@ export class VideoTutor implements MicHost {
     const ctx = this.threadCtx
     if (ctx.kind === 'checkpoint') {
       setVideo({ mode: 'checkpoint', checkpoint: { ...ctx.view, busy: false }, overlay: false, caption: '' })
-      setPlayer({ drawn: [], active: [], clipTime: 0, caption: '' })
+      setPlayer({ drawn: [], active: [], clipTime: 0, boardScroll: 0, caption: '' })
       return this.seekFromCheckpoint(target)
     }
     this.phase = 'video'
@@ -419,19 +427,20 @@ export class VideoTutor implements MicHost {
     return gen === this.gen && !this.stopped
   }
 
-  /** Play a line on the voice track; false when the sequence was interrupted (mic press, stop). */
-  private async say(spoken: Spoken, gen = this.gen): Promise<boolean> {
+  /** Play a line on the voice track (none: nothing to say); false when the sequence was interrupted (mic press, stop). */
+  private async say(spoken: Spoken | null, gen = this.gen): Promise<boolean> {
     if (!this.live(gen)) return false
+    if (!spoken) return true
     setVideo({ caption: spoken.text })
     setPlayer({ caption: spoken.text })
     await this.voice.play(spoken.audio_url, undefined, captionMs(spoken.text))
     return this.live(gen)
   }
 
-  /** Play an answer / re-teach clip on the overlay board, laid out against what is already drawn. */
-  private async playClip(clip: Clip, gen = this.gen): Promise<boolean> {
+  /** Play an answer / re-teach clip on the overlay board, laid out against what is already drawn (`laid`: already placed). */
+  private async playClip(clip: Clip, gen = this.gen, laid?: DrawAction[]): Promise<boolean> {
     if (!this.live(gen)) return false
-    const timeline = schedule(layoutStep(clip.draw, usePlayer.getState().drawn), clip.duration_ms)
+    const timeline = schedule(laid ?? layoutStep(clip.draw, usePlayer.getState().drawn), clip.duration_ms)
     setVideo({ caption: clip.say, overlay: true })
     setPlayer({ active: timeline, clipTime: 0, caption: clip.say })
     await this.voice.play(clip.audio_url, (ms) => setPlayer({ clipTime: ms }), captionMs(clip.say))
@@ -441,7 +450,7 @@ export class VideoTutor implements MicHost {
 
   /** Start generating the answer now, in the background, so its first line is ready when the ack ends. */
   private prefetch(doubtId: string): PendingAnswer {
-    const p: PendingAnswer = { clips: [], finished: false, failed: false, notify: null, abort: new AbortController() }
+    const p: PendingAnswer = { clips: [], finished: false, failed: false, notify: null, abort: new AbortController(), segment: null, laid: [] }
     this.prefetches.add(p)
     // A stream that stops delivering would leave the player waiting on the overlay for ever
     let stall = 0
@@ -481,14 +490,26 @@ export class VideoTutor implements MicHost {
 
   /**
    * Stream the answer onto the overlay board; `from` > 0 resumes an interrupted answer at that clip (the board as it
-   * was before it). 'error' when the stream failed or had no lines.
+   * was before it). 'error' when the stream failed or had no lines. A follow-up in the thread whose answer is on the
+   * board goes below that answer (the board lifts to make room) instead of replacing it.
    */
-  private async playAnswer(doubtId: string, p: PendingAnswer, gen: number, from = 0): Promise<'ok' | 'interrupted' | 'error'> {
+  private async playAnswer(doubtId: string, threadId: string, p: PendingAnswer, gen: number, from = 0): Promise<'ok' | 'interrupted' | 'error'> {
     await this.ready
     if (!this.live(gen)) return 'interrupted'
     updateDoubt(doubtId, { status: 'answering' })
     setVideo({ overlay: true })
-    if (from === 0) setPlayer({ layer: 'doubt', drawn: [], active: [], clipTime: 0 })
+    if (!p.segment) {
+      const drawn = usePlayer.getState().drawn
+      if (threadId === this.boardThread && drawn.length) {
+        p.segment = new Segment(drawn, ++this.boardSegments)
+      } else {
+        setPlayer({ layer: 'doubt', drawn: [], active: [], clipTime: 0, boardScroll: 0 })
+        this.boardThread = threadId
+        this.boardSegments = 0
+        p.segment = new Segment([], 0)
+      }
+    }
+    const segment = p.segment
     let lines = from
     for (let i = from; ; i++) {
       while (i >= p.clips.length && !p.finished) await new Promise<void>((r) => (p.notify = r))
@@ -496,7 +517,10 @@ export class VideoTutor implements MicHost {
       if (i >= p.clips.length) break
       lines++
       if (this.nowAnswer?.answer === p) Object.assign(this.nowAnswer, { stage: 'answer', clipIdx: i, drawnBefore: usePlayer.getState().drawn })
-      if (!(await this.playClip(p.clips[i], gen))) break
+      // Placed once, so a clip replayed after an empty mic press lands where it was
+      const laid = (p.laid[i] ??= [...(i === 0 ? segment.separator() : []), ...segment.place(p.clips[i].draw)])
+      await liftBoard(scrollFor(usePlayer.getState().boardScroll, laid), () => this.stopped)
+      if (!(await this.playClip(p.clips[i], gen, laid))) break
     }
     if (!this.live(gen)) return 'interrupted'
     updateDoubt(doubtId, { status: lines ? 'answered' : 'dismissed' })
@@ -567,7 +591,7 @@ export class VideoTutor implements MicHost {
   private async afterAnswer(now: NowAnswer, gen: number, from: number) {
     now.stage = 'answer' // the ack is done: an interruption from here on resumes at a clip, not the ack
     now.clipIdx = from
-    const outcome = await this.playAnswer(now.doubtId, now.answer, gen, from)
+    const outcome = await this.playAnswer(now.doubtId, now.thread.id, now.answer, gen, from)
     if (outcome === 'interrupted') return
     this.nowAnswer = null
     if (outcome === 'error') return this.failThread(gen)
@@ -657,11 +681,30 @@ export class VideoTutor implements MicHost {
     return thread.line ? this.say(thread.line, gen) : this.live(gen)
   }
 
-  /** A closed thread: its recap (not at a checkpoint), then back to the video or the card. */
+  /**
+   * A closed thread: back to the video or the card. Before the video, the board closes and the recap plays over the
+   * paused lecture at the point it resumes from; the video starts only once the recap has finished.
+   */
   private async endThread(thread: Thread, gen: number, seekMs: number | null = null) {
     const ctx = this.threadCtx
-    if (ctx.kind === 'video' && thread.recap && !(await this.say(thread.recap, gen))) return
+    if (ctx.kind === 'video' && thread.recap && this.live(gen)) {
+      this.showPaused(seekMs ?? resumePointMs(ctx.atMs, this.chapters, this.policy.rewind_ms))
+      if (!(await this.say(thread.recap, gen))) return
+    }
     this.closeThread(gen, seekMs)
+  }
+
+  /** The lecture video at atMs, paused and silent, with the whiteboard closed. */
+  private showPaused(atMs: number) {
+    const v = this.video
+    const ms = Math.max(0, Math.min(atMs, this.durationMs))
+    if (v) {
+      this.holdGen++ // a fade-out still running must not fight this
+      v.pause()
+      v.currentTime = ms / 1000
+    }
+    setVideo({ overlay: false, positionMs: ms, chapterIdx: chapterAt(ms, this.chapters) })
+    setPlayer({ drawn: [], active: [], clipTime: 0, boardScroll: 0 })
   }
 
   /** Resume the video near where the doubt was asked (or at seekMs), or bring the checkpoint card back. */
@@ -672,7 +715,7 @@ export class VideoTutor implements MicHost {
     setVideo({ thread: null, promptEndsAt: null, awaitingFollowup: false })
     if (ctx.kind === 'checkpoint') {
       setVideo({ mode: 'checkpoint', checkpoint: { ...ctx.view, busy: false }, overlay: false, caption: '' })
-      setPlayer({ drawn: [], active: [], clipTime: 0, caption: '' })
+      setPlayer({ drawn: [], active: [], clipTime: 0, boardScroll: 0, caption: '' })
       return
     }
     this.phase = 'video'
@@ -876,12 +919,12 @@ export class VideoTutor implements MicHost {
     if (live() && q.reteach.length) {
       patchCheckpoint({ stage: 'reteach' })
       setVideo({ overlay: true })
-      setPlayer({ layer: 'doubt', drawn: [], active: [], clipTime: 0 })
+      setPlayer({ layer: 'doubt', drawn: [], active: [], clipTime: 0, boardScroll: 0 })
       for (const clip of q.reteach) {
         if (!live() || !(await this.playClip(clip))) break
       }
       setVideo({ overlay: false })
-      setPlayer({ drawn: [], active: [], clipTime: 0 })
+      setPlayer({ drawn: [], active: [], clipTime: 0, boardScroll: 0 })
     }
     if (!live()) return
     patchCheckpoint({ stage: 'done', followup: !!q.followup })
@@ -949,7 +992,7 @@ export class VideoTutor implements MicHost {
     window.clearInterval(this.saveTimer)
     this.savePosition(this.durationMs)
     setVideo({ mode: 'summary', overlay: true, checkpoint: null, caption: t(this.lesson, 'makingSummary') })
-    setPlayer({ layer: 'doubt', drawn: [], active: [], clipTime: 0 })
+    setPlayer({ layer: 'doubt', drawn: [], active: [], clipTime: 0, boardScroll: 0 })
     try {
       const summary = await api.summary(this.sessionId)
       if (this.stopped) return

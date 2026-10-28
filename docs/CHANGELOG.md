@@ -13,6 +13,22 @@ Design docs:
 
 ---
 
+## 2026-10-28: Follow-ups continue on the board; recap over the paused video, in first person (branch `feature/video-lesson`)
+
+- A question asked while a doubt is being answered is a follow-up: its answer is drawn below the earlier one on the
+  same board (`engine/followup.ts`: each answer laid out in its own `Segment`, stacked under a dashed separator; the
+  board lifts with an eased scroll, `boardScroll` in the player store, both renderers). No filler, ack or bridge in
+  between; the answer prompt continues from what is on the board instead of starting over.
+  - Video lessons: follow-ups in an open thread stack the same way; answered-now follow-ups get no ack (except
+    covered-later answered early, `VIDEO_ACK_COVERED_NOW`).
+  - Whiteboard lessons: new `doubts.follow_up_of`; the mic also works during "now" answers; routing and the answer
+    prompt get the follow-up chain; a cut-off line is said again when the follow-up has nothing to answer.
+- Video recap: when a thread ends, the board closes and the recap plays over the paused lecture at the resume point;
+  the video starts only after it. Recap, answers and the covered-later ack speak as the teacher ("I", "we", "the next
+  section", the section's name) instead of "the teacher".
+
+---
+
 ## 2026-10-27 (evening): Doubt handling from the first test sessions; seek bar never stuck (branch `feature/video-lesson`)
 
 From a review of the 19 doubts asked in the afternoon's test sessions:

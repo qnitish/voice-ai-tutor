@@ -34,6 +34,7 @@ def migrate() -> None:
         conn.execute(text("ALTER TABLE doubts ADD COLUMN IF NOT EXISTS checkpoint_idx integer"))
         conn.execute(text("ALTER TABLE doubts ADD COLUMN IF NOT EXISTS question_idx integer"))
         conn.execute(text("ALTER TABLE doubts ADD COLUMN IF NOT EXISTS said varchar"))
+        conn.execute(text("ALTER TABLE doubts ADD COLUMN IF NOT EXISTS follow_up_of varchar(32)"))
 
 
 def new_id() -> str:
@@ -194,6 +195,8 @@ class Doubt(Base):
     # Asked from a checkpoint question's follow-up step (its question and wrong picks go to the answer prompt)
     checkpoint_idx: Mapped[int | None]
     question_idx: Mapped[int | None]
+    # Lesson boards: asked while the tutor was answering this doubt; answered below it on the same board
+    follow_up_of: Mapped[str | None] = mapped_column(String(32))
     created_at: Mapped[datetime] = mapped_column(server_default=func.now())
 
 
