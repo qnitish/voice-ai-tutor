@@ -6,6 +6,10 @@ import { usePlayer } from '@/store/player'
 
 /** One mark at progress p (0 -> 1): strokes draw themselves, text is written left to right, labels fade in. */
 function renderMark(m: Mark, p: number, key: string): ReactNode {
+  // A picture fades in
+  if (m.k === 'image') {
+    return <image key={key} href={m.href} x={m.x} y={m.y} width={m.w} height={m.h} opacity={p} preserveAspectRatio="xMidYMid meet" />
+  }
   if (m.k === 'path') {
     const common = { d: m.d, stroke: COLORS[m.color], strokeWidth: m.width, strokeLinecap: 'round', strokeLinejoin: 'round' } as const
     return (

@@ -6,6 +6,7 @@ import { SeekBar } from '@/components/video/SeekBar'
 import { doneCheckpoints } from '@/engine/video/checkpoints'
 import type { VideoTutor } from '@/engine/video/videoTutor'
 import type { Lesson } from '@/lib/types'
+import { t } from '@/lib/i18n'
 import { cn } from '@/lib/utils'
 import { canSeek, useVideo } from '@/store/video'
 
@@ -22,6 +23,8 @@ export function VideoPlayer({ tutor, lesson, children }: { tutor: VideoTutor; le
   const overlay = useVideo((s) => s.overlay)
   const positionMs = useVideo((s) => s.positionMs)
   const answered = useVideo((s) => s.answered)
+  // A checkpoint question is on the board (a doubt asked at it shows as a doubt)
+  const atCheckpoint = useVideo((s) => s.mode === 'checkpoint')
 
   useEffect(() => {
     if (videoRef.current) tutor.attach(videoRef.current)
@@ -50,7 +53,9 @@ export function VideoPlayer({ tutor, lesson, children }: { tutor: VideoTutor; le
             ) : (
               <Board />
             )}
-            <Badge className="absolute top-3 right-3 bg-amber-500">Doubt</Badge>
+            <Badge className={cn('absolute top-3 right-3', atCheckpoint ? 'bg-blue-600' : 'bg-amber-500')}>
+              {atCheckpoint ? t(lesson, 'checkpointBadge') : 'Doubt'}
+            </Badge>
           </div>
         )}
         {children && <div className="absolute inset-0 flex items-center justify-center bg-black/30 p-4">{children}</div>}

@@ -14,6 +14,8 @@ export type DrawAction = Placed &
   | { type: 'line'; id: string; start: Point; end: Point; color: Color; dashed: boolean }
   | { type: 'arrow'; id: string; start: Point; end: Point; color: Color; label: string | null }
   | { type: 'rect'; id: string; x: number; y: number; w: number; h: number; color: Color; label: string | null }
+  // Frontend only (not in the LLM's DSL): a picture placed by the player, e.g. a checkpoint question's diagram
+  | { type: 'image'; id: string; x: number; y: number; w: number; h: number; src: string }
   | { type: 'circle'; id: string; cx: number; cy: number; r: number; color: Color; filled: boolean; label: string | null }
   | {
       type: 'angle'
@@ -258,6 +260,8 @@ export type Intent =
   // Video lessons only: an answer / reaction to the tutor, and "what does the lecture cover?"
   | 'reply'
   | 'overview'
+  // Video checkpoints only: the worked solution of the question on the board
+  | 'solution'
 /** "now" plays the answer immediately; "replay" restarts the current step */
 export type AnswerWhen = 'none' | 'now' | 'replay' | 'step_end' | 'scene_end' | 'target_scene'
 
@@ -278,6 +282,11 @@ export interface CheckResult {
   correct_index: number
   explanation: string
   feedback: Spoken
+}
+
+/** A checkpoint answer: once the answer is shown, also the explanation's first sentences, spoken */
+export interface VideoCheckResult extends CheckResult {
+  explanation_spoken: Spoken | null
 }
 
 export interface SessionSummary {
@@ -326,6 +335,12 @@ export interface CheckpointQuestion {
   replay: ReplayRange | null
   /** Generated re-explanation on the overlay board, after the replay */
   reteach: Clip[]
+  /** The explanation's first sentences, spoken once the answer is shown (null: made when answered) */
+  explanation_audio?: Spoken | null
+  /** Worked solution, written below the question only when the student asks for it */
+  solution?: Clip[]
+  /** A diagram shown beside the question on the board (its pixel size, for the layout) */
+  image?: { url: string; w: number; h: number } | null
   /** "Which part confused you? Ask me, or let's continue." */
   followup: Spoken | null
 }
@@ -359,6 +374,8 @@ export interface Thread {
   recap: Spoken | null
   /** A line to play now ("Which part is still unclear?", or the capped "Let's continue…") */
   line: Spoken | null
+  /** "Did you get it?…", spoken after an answer of an open thread; the student replies with the mic */
+  prompt?: Spoken | null
 }
 
 export type VideoAnswerWhen = 'now' | 'chapter_end' | 'target_chapter' | 'replay' | 'none'

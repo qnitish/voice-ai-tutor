@@ -13,6 +13,47 @@ Design docs:
 
 ---
 
+## 2026-10-28 (late night): Spoken "Did you get it?" and recaps after checkpoint doubts (branch `feature/video-lesson`)
+
+- After every answer the teacher asks out loud: `VIDEO_GOT_IT_LINE` ("Did you get it? You can unmute yourself and
+  answer, or if you got it, we can move on."), sent as `thread.prompt` with answers given now and promised doubts
+  delivered; pre-generated with the other video lines (`--lines-only` for a published lesson). The 10 s wait
+  (`video_thread_idle_s`, was 20) starts once she has asked; silence ends the thread like "got it".
+- Voice replies: `routing.is_understood` takes short replies such as "yeah I got it", "continue", "samajh gaya", "aage
+  chalo" as `continue` without an LLM call; a negation or question word ("samajh nahi aaya", "ok but why…") is routed
+  as a follow-up. A "got it" inside a pause has no ack: straight to the recap or the video. The card no longer has
+  Ask another (the mic is the way to ask); Got it stays as a tap fallback.
+- Threads asked on a checkpoint card now get a recap by the same rules (2 answered doubts or 45 s of answers). It is
+  kept until the checkpoint hands back to the video, then plays over the paused video rewound `rewind_ms` (not before
+  the chapter start) in place of the bridge line (`checkpoints.resumeAfterCheckpoint`). Without one: bridge, resume at
+  the checkpoint as before.
+- Tests: `backend/tests/test_got_it_prompt.py`, `frontend/tests/checkpoint-recap.test.ts` (no locked test changed).
+
+## 2026-10-28 (night): Checkpoint questions on the whiteboard; follow-ups and step-by-step solutions (branch `feature/video-lesson`)
+
+- The checkpoint pop-up card is gone. The question is written on the whiteboard while it is read out, then its
+  options A–D (`engine/video/quizBoard.ts`, laid out in code from the stored question). The answer bar under the board
+  (`CheckpointBar`) has only A–D, Skip, and once answered Show solution and Continue. Wrong pick: crossed out in red,
+  hint written and spoken. Answer shown: boxed and ticked in green, the explanation written while its first two
+  sentences are spoken (`VideoCheckOut.explanation_spoken`).
+- The mic works as soon as a question is on the board. Until it is decided, routing and the answer prompt don't see
+  the correct option, so the tutor gives hints. Answers go below the question on the same board; the board comes back
+  as the question left it afterwards.
+- Step-by-step solution only when asked: by voice (new intent `solution`) or the Show solution button
+  (`POST /api/sessions/{id}/checkpoints/{idx}/solution`), only once the question is decided (before:
+  `VIDEO_SOLUTION_LATER`). `python -m app.prep.solutions --slug …` writes the solutions for the published lesson,
+  checks each against the answer key with a second call (rewritten up to 3 times), voices the steps and the
+  explanations, and saves them into the stored questions (DB edits to checkpoints are kept). Lecture 5: 10 of 10
+  passed the check on the first try. Lessons without prepared solutions get one written live.
+- Spec `video-lesson-spec.md` 1.2.2 updated.
+- Question diagrams: `python -m app.prep.question_images --slug … <one image per question, in order>` scales them
+  (≤ 1000 px), saves them under media/lessons/<slug>/questions/ and sets each question's `image` in the stored lesson.
+  The board shows the picture on the right (≤ 560×520 board units, fading in as the question is written) with the
+  question and options wrapped beside it; notes go below both. New frontend-only draw action `image` (SVG board; the
+  Skia board doesn't draw pictures yet). Lecture 5: all 10 questions have one.
+
+---
+
 ## 2026-10-28 (evening): Promised video doubts are answered after their chapter (branch `feature/video-lesson`)
 
 - A covered_later doubt used to get only "You asked earlier…, let's look at that now" at the target chapter's start,

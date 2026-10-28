@@ -41,7 +41,9 @@ from app.prompts import (
     VIDEO_ACKS,
     VIDEO_CAPPED_LINE,
     VIDEO_FOLLOWUP_LINE,
+    VIDEO_GOT_IT_LINE,
     VIDEO_RECAP_TEMPLATE,
+    VIDEO_SOLUTION_LATER,
     VIDEO_SORRY_LINE,
     for_gender,
 )
@@ -501,7 +503,10 @@ def reset_stages(files: dict[str, Path], redo: str | None, share_from: str | Non
 
 
 # The fixed lines the live video routes play (app.api.video_doubts, app.services.threads), as `speak_cached` keys
-VIDEO_LINES = [*VIDEO_ACKS.values(), VIDEO_ACK_COVERED_NOW, VIDEO_ACK_NEUTRAL, VIDEO_FOLLOWUP_LINE, VIDEO_CAPPED_LINE, VIDEO_SORRY_LINE]
+VIDEO_LINES = [
+    *VIDEO_ACKS.values(), VIDEO_ACK_COVERED_NOW, VIDEO_ACK_NEUTRAL, VIDEO_FOLLOWUP_LINE, VIDEO_CAPPED_LINE, VIDEO_SORRY_LINE,
+    VIDEO_SOLUTION_LATER, VIDEO_GOT_IT_LINE,
+]
 
 
 async def make_video_lines(titles: list[str], voice: str | None = None) -> int:

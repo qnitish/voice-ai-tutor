@@ -2,6 +2,7 @@
 
 import math
 import random
+import re
 
 
 def shuffle_checks(checks: list[dict | None], seed: str) -> list[dict | None]:
@@ -32,3 +33,11 @@ def shuffle_checks(checks: list[dict | None], seed: str) -> list[dict | None]:
             moved["why_wrong"] = [q["why_wrong"][j] for j in order]
         out.append(moved)
     return out
+
+
+SENTENCE_END = re.compile(r"(?<=[.!?])\s+")
+
+
+def spoken_explanation(text: str, sentences: int = 2) -> str:
+    """The first sentences of a checkpoint explanation, spoken once the answer is shown (the board shows it all)."""
+    return " ".join(SENTENCE_END.split(text.strip())[:sentences])

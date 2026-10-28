@@ -76,12 +76,22 @@ video plays ── checkpoint at_ms reached ──► video pauses ──► int
 ### 1.2 Checkpoints
 1. Reaching a not-done checkpoint's `at_ms` while playing pauses the video (`dueCheckpoint`; on `ended` the engine
    uses `nowMs = Infinity`). `start(fromMs)` asks a not-done checkpoint with `|at_ms - fromMs| < 500` right away.
-2. Play `intro`. Each question: play its `say`, show the card. Correct → feedback line, next question. Wrong first
-   pick → hint `why_wrong[picked]`, one retry. Wrong retry → reveal the answer, then replay the teacher's `replay`
-   range of the video (the card hides while `stage === 'reteach'`), then any `reteach` clips on the overlay
-   (none in v1 prep), then `followup` with the mic open. Questions asked then carry `checkpoint_idx`/`question_idx`,
-   are forced to `confused` unless `off_topic`/`unclear`/`continue`, and their thread returns to the checkpoint card
-   at the end (no recap, no video resume).
+2. Play `intro` over the opened whiteboard. Each question is **written on the board** (`engine/video/quizBoard.ts`,
+   laid out from the stored question, no LLM) while its `say` plays, then its options A–D; the answer bar under
+   the board (`CheckpointBar`) has only the letters, Skip, and once answered Show solution and Continue. The mic is
+   open for the question as soon as it is up (`view.followup`). Correct → feedback line, the option boxed and ticked,
+   the explanation written while its first sentences are spoken (`explanation_spoken`). Wrong first pick → the pick
+   crossed out, hint `why_wrong[picked]` written and spoken, one retry. Wrong retry → crossed out, the answer boxed
+   and explained, then the teacher's `replay` (the board hides while `stage === 'reteach'`), any `reteach` clips below
+   the question, then `followup`. (Changed 2026-10-28: the card used to be a pop-up and the mic opened only at
+   `followup`.)
+   - Doubts asked at a question carry `checkpoint_idx`/`question_idx`, are forced to `confused` unless
+     `off_topic`/`unclear`/`continue`/`solution`, are answered below the question on the board, and their thread
+     returns to the question as it was (no recap, no video resume). Until the question is decided (right, retried,
+     revealed or skipped) neither routing nor the answer prompt sees the correct option: the tutor gives hints.
+   - `solution` (spoken, or the Show solution button: `POST /api/sessions/{id}/checkpoints/{idx}/solution`): only
+     once the question is decided (before: `VIDEO_SOLUTION_LATER`, no answer). The steps come from
+     `question.solution` (made by `python -m app.prep.solutions`, checked against the key), else are written live.
 3. Skip records `kind: "skip"`. After the last question play a bridge line and resume at `at_ms` (no rewind).
 4. **Seeking** (only while playing or paused): back anywhere; forward stops at exactly the first not-done
    checkpoint's `at_ms` passed (`clampSeek`), and the engine asks it. Done checkpoints are not asked again.
@@ -266,7 +276,8 @@ Prompts go in `app/prompts.py` under "Video lessons: prep".
   `lesson.renderer`) shows over it with a "Doubt" badge.
 - `ThreadPrompt`: in `thread_prompt` (or `awaitingFollowup`), "Did that make sense?" with **Got it** / **Ask
   another** (hidden when `!thread.can_follow_up`) and the countdown from `promptEndsAt`.
-- `CheckpointCard`: "Question n of N", options, wrong picks marked, hint/explanation, Skip, Continue; hidden while
+- `CheckpointBar` (replaced `CheckpointCard`): "Question n of N", A–D, wrong picks and the answer marked, Skip, Show
+  solution, Continue; the question, options, hints and explanation are on the board. Hidden while
   `stage === 'reteach'`.
 
 ## 4. Edge cases (all)

@@ -19,10 +19,10 @@ function useCountdown(endsAt: number | null): number {
 }
 
 /**
- * "Did that make sense?" after an answer: Got it ends the thread, Ask another keeps it open for a follow-up (only
- * while the thread allows one). While a follow-up is awaited the mic is the way to answer; on a thread that has
- * answered nothing yet (the speech wasn't understood) it asks to try again, with Continue to go back to the video.
- * Shows how long until the idle timer resumes the lecture on its own.
+ * "Did you get it?" after an answer, asked out loud by the teacher: the student answers with the mic ("got it" moves
+ * on, anything else is a follow-up), or taps Got it. While a follow-up is awaited the mic is the way to answer; on a
+ * thread that has answered nothing yet (the speech wasn't understood) it asks to try again, with Continue to go back
+ * to the video. Shows how long until the idle timer moves on by itself.
  */
 export function ThreadPrompt({ tutor }: { tutor: VideoTutor }) {
   const mode = useVideo((s) => s.mode)
@@ -44,7 +44,12 @@ export function ThreadPrompt({ tutor }: { tutor: VideoTutor }) {
             <Mic className="size-4 shrink-0" /> {t(lesson, retry ? 'askAgainHint' : 'followupHint')}
           </>
         ) : (
-          t(lesson, 'gotIt')
+          <>
+            <Mic className="size-4 shrink-0" />
+            <span>
+              {t(lesson, 'gotIt')} <span className="font-normal">{t(lesson, 'gotItHint')}</span>
+            </span>
+          </>
         )}
       </p>
       {promptEndsAt !== null && <span className="text-xs text-amber-800 tabular-nums">{fill(t(lesson, 'resumingIn'), { s: seconds })}</span>}
@@ -52,11 +57,6 @@ export function ThreadPrompt({ tutor }: { tutor: VideoTutor }) {
         <Button size="sm" onClick={() => void tutor.reply(true)}>
           {t(lesson, retry ? 'next' : 'gotItYes')}
         </Button>
-        {!awaitingFollowup && !retry && thread.can_follow_up && (
-          <Button size="sm" variant="outline" onClick={() => void tutor.reply(false)}>
-            {t(lesson, 'askAnother')}
-          </Button>
-        )}
       </div>
     </div>
   )

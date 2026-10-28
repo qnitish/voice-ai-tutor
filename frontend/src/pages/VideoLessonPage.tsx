@@ -7,10 +7,10 @@ import { MicButton } from '@/components/MicButton'
 import { Button } from '@/components/ui/button'
 import { Progress } from '@/components/ui/progress'
 import { ChapterList } from '@/components/video/ChapterList'
-import { CheckpointCard } from '@/components/video/CheckpointCard'
+import { CheckpointBar } from '@/components/video/CheckpointBar'
+import { ThreadPrompt } from '@/components/video/ThreadPrompt'
 import { fill } from '@/components/video/format'
 import { StartCard } from '@/components/video/StartCard'
-import { ThreadPrompt } from '@/components/video/ThreadPrompt'
 import { VideoDoubtList } from '@/components/video/VideoDoubtList'
 import { VideoPlayer } from '@/components/video/VideoPlayer'
 import { VideoSummaryCard } from '@/components/video/VideoSummaryCard'
@@ -56,7 +56,7 @@ export function VideoLessonPage({ slug, onExit }: { slug: string; onExit: () => 
   const [chaptersOpen, setChaptersOpen] = useState(readChaptersOpen)
   // The whole store: the seek position changes often anyway, and the mic state derives from several fields
   const video = useVideo()
-  const { mode, positionMs, chapterIdx, caption, error, checkpoint } = video
+  const { mode, positionMs, chapterIdx, caption, error } = video
 
   useEffect(() => {
     // One engine per mount; StrictMode's extra mount/unmount gets its own instance (stop() is permanent)
@@ -120,8 +120,6 @@ export function VideoLessonPage({ slug, onExit }: { slug: string; onExit: () => 
       <StartCard lesson={lesson} resume={resumePoint?.resume ?? null} onStart={(from) => void start(from)} />
     ) : mode === 'done' ? (
       <VideoSummaryCard onExit={onExit} />
-    ) : checkpoint && mode === 'checkpoint' && checkpoint.stage !== 'reteach' ? (
-      <CheckpointCard tutor={tutor} />
     ) : null
 
   return (
@@ -145,6 +143,7 @@ export function VideoLessonPage({ slug, onExit }: { slug: string; onExit: () => 
           <VideoPlayer tutor={tutor} lesson={lesson}>
             {card}
           </VideoPlayer>
+          <CheckpointBar tutor={tutor} />
           <ThreadPrompt tutor={tutor} />
           <p className="bg-muted min-h-12 rounded-lg px-4 py-3 text-sm leading-relaxed">{caption || ' '}</p>
         </div>

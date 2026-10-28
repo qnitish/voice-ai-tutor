@@ -45,3 +45,11 @@ export function resumePointMs(atMs: number, chapters: Chapter[], rewindMs: numbe
   const chapterStart = chapters.length ? chapters[chapterAt(atMs, chapters)].start_ms : 0
   return Math.max(chapterStart, atMs - rewindMs, 0)
 }
+
+/**
+ * Where the video resumes after a checkpoint at atMs: right there, unless a long doubt thread on its card left a
+ * recap, which plays over the paused video rewound like after a doubt.
+ */
+export function resumeAfterCheckpoint(atMs: number, chapters: Chapter[], rewindMs: number, recap: unknown): number {
+  return recap ? resumePointMs(atMs, chapters, rewindMs) : atMs
+}

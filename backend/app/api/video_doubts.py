@@ -6,6 +6,7 @@ The answer itself streams from GET /api/doubts/{id}/answer (questions.py), which
 
 import asyncio
 import re
+import time
 
 from fastapi import APIRouter, BackgroundTasks, Depends, Form, HTTPException, UploadFile
 from sqlalchemy import select
@@ -26,11 +27,13 @@ from app.prompts import (
     VIDEO_CAPPED_LINE,
     VIDEO_CLASSIFY_SYSTEM,
     VIDEO_FOLLOWUP_LINE,
+    VIDEO_GOT_IT_LINE,
+    VIDEO_SOLUTION_LATER,
     VIDEO_SORRY_LINE,
 )
 from app.providers import get_stt
-from app.routing import is_affirmative
-from app.schemas import Classification, Spoken, ThreadAbandonIn, ThreadOut, ThreadReplyIn, VideoQuestionOut
+from app.routing import is_understood
+from app.schemas import Classification, SolutionIn, Spoken, ThreadAbandonIn, ThreadOut, ThreadReplyIn, VideoQuestionOut
 from app.services.threads import (
     ThreadPolicy,
     schedule_recap,
@@ -55,6 +58,7 @@ ANSWER_WHEN = {
     "repeat": "replay",
     "reply": "now",
     "overview": "now",
+    "solution": "now",
     "continue": "none",
     "off_topic": "none",
     "unclear": "none",
@@ -62,11 +66,13 @@ ANSWER_WHEN = {
 # These suggest the student hasn't got the current chapter's concept yet
 STRUGGLE_INTENTS = {"confused", "repeat", "prerequisite"}
 # Asked from a checkpoint's follow-up step: anything on topic is re-explained right away
-KEEP_DURING_CHECKPOINT = {"off_topic", "unclear", "continue"}
+KEEP_DURING_CHECKPOINT = {"off_topic", "unclear", "continue", "solution"}
 # Answered without using one of the thread's follow-up turns: a reply to the tutor's own question isn't a new doubt
 NO_TURN_INTENTS = {"reply"}
 # A rewritten "question" that describes the student instead of quoting them is replaced by what STT heard
 META_QUESTION = re.compile(r"^\s*(the student|student's|the doubt|this doubt|unclear|not understandable)", re.I)
+# What a press of the Solution button is stored as
+SOLUTION_REQUEST = "Show me the step-by-step solution."
 # "repeat" seeks back this far (not before the chapter start)
 REPLAY_MS = 30_000
 ROUTING_WINDOW_MS = 60_000
@@ -152,15 +158,30 @@ def tutor_last_line(rows: list[Doubt]) -> str:
     return ""
 
 
-def checkpoint_on_screen(db: Session, session_id: str, checkpoint_idx: int, question_idx: int, q: dict) -> str:
-    """The checkpoint card the student is looking at, options lettered as on screen, for routing a follow-up."""
+def checkpoint_on_screen(
+    db: Session, session_id: str, checkpoint_idx: int, question_idx: int, q: dict, decided: bool = True
+) -> str:
+    """The checkpoint question the student is looking at, options lettered as on screen, for routing a doubt.
+    The correct option is left out while the student may still answer it."""
     letters = "ABCD"
     picked = ", ".join(letters[i] for i in checkpoint_picks(db, session_id, checkpoint_idx, question_idx) if i < len(q["options"]))
+    answer = f"correct: {letters[q['correct_index']]}" if decided else "not answered yet"
     return (
         f"Checkpoint question on screen: {q['question']}\n"
         + "".join(f"{letters[i]}. {o}\n" for i, o in enumerate(q["options"]))
-        + f"Student picked (wrong): {picked or 'none'}; correct: {letters[q['correct_index']]}\n\n"
+        + f"Student picked (wrong): {picked or 'none'}; {answer}\n\n"
     )
+
+
+def question_decided(db: Session, session_id: str, checkpoint_idx: int, question_idx: int, q: dict) -> bool:
+    """Whether the student is done answering a checkpoint question: right, out of tries, revealed or skipped."""
+    rows = db.scalars(
+        select(CheckpointAnswer).filter_by(session_id=session_id, checkpoint_idx=checkpoint_idx, question_idx=question_idx)
+    ).all()
+    if any(r.correct or r.kind in ("retry", "skip") for r in rows):
+        return True
+    # A wrong first pick on a question without hints shows the answer at once
+    return any(r.kind == "first" for r in rows) and not any(q.get("why_wrong") or [])
 
 
 def routing_prompt(
@@ -214,8 +235,8 @@ async def classify(
 ) -> Classification:
     if not transcript:
         return Classification(intent="unclear", question="")
-    # "yes / got it" after an answer in this pause: no LLM call
-    if was_open and is_affirmative(transcript) and last_answered(db, thread):
+    # "yes / got it / continue" after an answer in this pause: no LLM call
+    if was_open and is_understood(transcript) and last_answered(db, thread):
         return Classification(intent="continue", question=transcript)
     user = routing_prompt(db, sess, chapter_idx, at_ms, thread, transcript, on_screen)
     cls = await llm.complete_json(VIDEO_CLASSIFY_SYSTEM, user, Classification, temperature=0.2, model=settings.routing_deployment)
@@ -248,6 +269,8 @@ async def ack_for(cls: Classification, answer_when: str, doubt_id: str, voice: s
             log_event("ack.failed", level="warn", doubt_id=doubt_id, error=f"{type(e).__name__}: {e}"[:300])
     if cls.intent == "covered_later" and answer_when == "now":
         return await safe_line(VIDEO_ACK_COVERED_NOW, voice, doubt_id=doubt_id)
+    if cls.intent == "solution" and answer_when == "none":
+        return await safe_line(VIDEO_SOLUTION_LATER, voice, doubt_id=doubt_id)
     return await safe_line(VIDEO_ACKS[cls.intent], voice, doubt_id=doubt_id)
 
 
@@ -262,103 +285,148 @@ async def ask_video_question(
     question_idx: int | None = Form(None),
     db: Session = Depends(get_db),
 ):
+    sess = video_session(db, session_id)
+    started = time.perf_counter()
+    stt = get_stt()
+    wav, duration_ms = await asyncio.to_thread(to_wav, await audio.read(), STT_RATE)
+    if duration_ms > stt.max_seconds * 1000:
+        raise HTTPException(400, f"Recording longer than {stt.max_seconds}s")
+    transcript = await transcribe(wav, sess.lesson.language, session_id=sess.id) if duration_ms > 300 else ""
+    return await route_question(db, sess, background, started, at_ms, thread_id, checkpoint_idx, question_idx, transcript)
+
+
+@router.post("/sessions/{session_id}/checkpoints/{checkpoint_idx}/solution", response_model=VideoQuestionOut)
+async def ask_for_solution(
+    session_id: str, checkpoint_idx: int, body: SolutionIn, background: BackgroundTasks, db: Session = Depends(get_db)
+):
+    """The Solution button at a checkpoint question: routed like a spoken "show me the solution"."""
+    sess = video_session(db, session_id)
+    cp, q = checkpoint_question(sess.lesson, checkpoint_idx, body.question_idx)
+    if q is None:
+        raise HTTPException(404, "Checkpoint question not found")
+    request = Classification(intent="solution", question=SOLUTION_REQUEST, confidence=1.0)
+    return await route_question(
+        db, sess, background, time.perf_counter(), cp.at_ms, body.thread_id, checkpoint_idx, body.question_idx, "", request
+    )
+
+
+def video_session(db: Session, session_id: str) -> TutorSession:
     sess = get_session(db, session_id)
-    lesson = sess.lesson
-    if lesson.kind != "video":
+    if sess.lesson.kind != "video":
         raise HTTPException(400, "Not a video lesson")
+    return sess
+
+
+async def route_question(
+    db: Session,
+    sess: TutorSession,
+    background: BackgroundTasks,
+    started: float,
+    at_ms: int,
+    thread_id: str | None,
+    checkpoint_idx: int | None,
+    question_idx: int | None,
+    transcript: str,
+    request: Classification | None = None,
+) -> VideoQuestionOut:
+    """Route a doubt (heard as `transcript`, or a `request` from a button) and run its thread's lifecycle."""
+    lesson = sess.lesson
     policy = ThreadPolicy.from_settings()
     voice = lesson.voice
 
-    with Timer() as timer:
-        stt = get_stt()
-        wav, duration_ms = await asyncio.to_thread(to_wav, await audio.read(), STT_RATE)
-        if duration_ms > stt.max_seconds * 1000:
-            raise HTTPException(400, f"Recording longer than {stt.max_seconds}s")
-        transcript = await transcribe(wav, lesson.language, session_id=sess.id) if duration_ms > 300 else ""
+    cp, q = checkpoint_question(lesson, checkpoint_idx, question_idx)
+    decided = question_decided(db, sess.id, cp.idx, question_idx, q) if q else True
+    on_screen = checkpoint_on_screen(db, sess.id, cp.idx, question_idx, q, decided) if q else ""
+    chapter_idx = cp.chapter_idx if cp else chapter_at(lesson, at_ms)
+    thread = get_open_thread(db, sess, thread_id)
+    was_open = thread is not None
+    if thread is None:
+        thread = open_thread(db, sess, at_ms, chapter_idx)
 
-        cp, q = checkpoint_question(lesson, checkpoint_idx, question_idx)
-        on_screen = checkpoint_on_screen(db, sess.id, cp.idx, question_idx, q) if q else ""
-        chapter_idx = cp.chapter_idx if cp else chapter_at(lesson, at_ms)
-        thread = get_open_thread(db, sess, thread_id)
-        was_open = thread is not None
-        if thread is None:
-            thread = open_thread(db, sess, at_ms, chapter_idx)
+    cls = request or await classify(db, sess, chapter_idx, at_ms, thread, was_open, transcript, on_screen)
+    if cls.intent == "solution" and not q:
+        cls = cls.model_copy(update={"intent": "not_covered"})  # no checkpoint question to solve: answer the doubt
+    answer_when = ANSWER_WHEN[cls.intent]
+    if cls.intent == "solution" and not decided:
+        answer_when = "none"  # not before the student has answered it (VIDEO_SOLUTION_LATER)
+    if cls.intent == "covered_later" and was_open:
+        # The student is already paused: answer it now instead of promising a callback
+        answer_when = "now"
+        cls = cls.model_copy(update={"target_scene_idx": None, "callback": None})
+    # The cap applies only to answerable doubts; a capped one is still stored, with no turn used
+    uses_turn = cls.intent not in NO_TURN_INTENTS
+    capped = answer_when == "now" and uses_turn and not can_follow_up(thread.turns, policy)
+    if capped:
+        answer_when = "none"
+    turn = thread.turns
+    if answer_when == "now" and uses_turn:
+        thread.turns += 1
 
-        cls = await classify(db, sess, chapter_idx, at_ms, thread, was_open, transcript, on_screen)
-        answer_when = ANSWER_WHEN[cls.intent]
-        if cls.intent == "covered_later" and was_open:
-            # The student is already paused: answer it now instead of promising a callback
-            answer_when = "now"
-            cls = cls.model_copy(update={"target_scene_idx": None, "callback": None})
-        # The cap applies only to answerable doubts; a capped one is still stored, with no turn used
-        uses_turn = cls.intent not in NO_TURN_INTENTS
-        capped = answer_when == "now" and uses_turn and not can_follow_up(thread.turns, policy)
-        if capped:
-            answer_when = "none"
-        turn = thread.turns
-        if answer_when == "now" and uses_turn:
-            thread.turns += 1
+    doubt = Doubt(
+        session_id=sess.id,
+        scene_idx=chapter_idx,
+        step_idx=0,
+        question=cls.question or transcript,
+        said=transcript,
+        intent=cls.intent,
+        target_scene_idx=cls.target_scene_idx,
+        callback=cls.callback,
+        confidence=cls.confidence,
+        at_ms=at_ms,
+        thread_id=thread.id,
+        turn=turn,
+        checkpoint_idx=cp.idx if cp else None,
+        question_idx=question_idx if q else None,
+    )
+    if cls.intent == "solution" and answer_when == "now" and q.get("solution"):
+        doubt.answer = q["solution"]  # prepared and checked in prep (app.prep.solutions): streamed from storage
+    db.add(doubt)
+    concept = mastery_concept(lesson, chapter_idx)
+    if cls.intent in STRUGGLE_INTENTS and concept:
+        update_mastery(db, sess.guest_id, concept, doubt_mastery, attempt=False)
+    touch(sess)
+    db.commit()
 
-        doubt = Doubt(
-            session_id=sess.id,
-            scene_idx=chapter_idx,
-            step_idx=0,
-            question=cls.question or transcript,
-            said=transcript,
-            intent=cls.intent,
-            target_scene_idx=cls.target_scene_idx,
-            callback=cls.callback,
-            confidence=cls.confidence,
-            at_ms=at_ms,
-            thread_id=thread.id,
-            turn=turn,
-            checkpoint_idx=cp.idx if cp else None,
-            question_idx=question_idx if q else None,
-        )
-        db.add(doubt)
-        concept = mastery_concept(lesson, chapter_idx)
-        if cls.intent in STRUGGLE_INTENTS and concept:
-            update_mastery(db, sess.guest_id, concept, doubt_mastery, attempt=False)
-        touch(sess)
-        db.commit()
+    # Everything is committed: no row stays locked while the lines are synthesized or the recap is made.
+    # A follow-up answered now continues the answer on the board, with no canned line in between
+    # (except that a later chapter's topic is answered early, which the student should hear).
+    follow_up = answer_when == "now" and turn > 0 and cls.intent != "covered_later"
+    # "Got it" in a pause goes straight to the recap or the video: no "Okay, let's continue." first
+    moving_on = cls.intent == "continue" and was_open
+    ack_spoken = None if follow_up or moving_on else await ack_for(cls, answer_when, doubt.id, voice, capped=capped)
 
-        # Everything is committed: no row stays locked while the lines are synthesized or the recap is made.
-        # A follow-up answered now continues the answer on the board, with no canned line in between
-        # (except that a later chapter's topic is answered early, which the student should hear).
-        follow_up = answer_when == "now" and turn > 0 and cls.intent != "covered_later"
-        ack_spoken = None if follow_up else await ack_for(cls, answer_when, doubt.id, voice, capped=capped)
-
-        callback = None
-        target_ms = None
-        deliver_at = None
-        replay_from_ms = None
-        if answer_when == "now":
-            out = thread_out(thread, policy)
-        elif capped:
-            line = await safe_line(VIDEO_CAPPED_LINE, voice, session_id=sess.id, thread_id=thread.id)
-            out = await close_thread(db, thread, "capped", lesson, line=line)
-        elif cls.intent == "covered_later":
-            # Not needed until the target chapter starts, so synthesize it after responding
-            background.add_task(speak, cls.callback, callback_path(doubt.id), voice)
-            callback = callback_spoken(doubt)
-            target_ms = chapter_of(lesson, cls.target_scene_idx).start_ms
-            deliver_at = deliver_ms(lesson, cls.target_scene_idx)
-            out = await close_thread(db, thread, "resolved", lesson)
-        elif cls.intent == "repeat":
-            chapter = chapter_of(lesson, chapter_idx)
-            replay_from_ms = max(chapter.start_ms if chapter else 0, at_ms - REPLAY_MS)
-            out = await close_thread(db, thread, "resolved", lesson)
-        elif cls.intent == "unclear" or (cls.intent == "off_topic" and was_open):
-            out = thread_out(thread, policy)  # still open, no turn used: the player shows "Got it?" again
-        else:
-            out = await close_thread(db, thread, "resolved", lesson)
+    callback = None
+    target_ms = None
+    deliver_at = None
+    replay_from_ms = None
+    if answer_when == "now":
+        prompt = await safe_line(VIDEO_GOT_IT_LINE, voice, session_id=sess.id, thread_id=thread.id)
+        out = thread_out(thread, policy, prompt=prompt)
+    elif capped:
+        line = await safe_line(VIDEO_CAPPED_LINE, voice, session_id=sess.id, thread_id=thread.id)
+        out = await close_thread(db, thread, "capped", lesson, line=line)
+    elif cls.intent == "covered_later":
+        # Not needed until the target chapter starts, so synthesize it after responding
+        background.add_task(speak, cls.callback, callback_path(doubt.id), voice)
+        callback = callback_spoken(doubt)
+        target_ms = chapter_of(lesson, cls.target_scene_idx).start_ms
+        deliver_at = deliver_ms(lesson, cls.target_scene_idx)
+        out = await close_thread(db, thread, "resolved", lesson)
+    elif cls.intent == "repeat":
+        chapter = chapter_of(lesson, chapter_idx)
+        replay_from_ms = max(chapter.start_ms if chapter else 0, at_ms - REPLAY_MS)
+        out = await close_thread(db, thread, "resolved", lesson)
+    elif cls.intent == "unclear" or (cls.intent == "off_topic" and was_open):
+        out = thread_out(thread, policy)  # still open, no turn used: the player shows "Got it?" again
+    else:
+        out = await close_thread(db, thread, "resolved", lesson)
 
     log_event(
         "route.done",
         session_id=sess.id,
         thread_id=thread.id,
         doubt_id=doubt.id,
-        ms=timer.ms,
+        ms=int((time.perf_counter() - started) * 1000),
         intent=cls.intent,
         confidence=cls.confidence,
         answer_when=answer_when,
@@ -459,7 +527,8 @@ async def deliver_doubt(doubt_id: str, db: Session = Depends(get_db)):
     log_event("doubt.delivered", session_id=sess.id, thread_id=thread.id, doubt_id=doubt.id, at_ms=thread.at_ms)
     if doubt.answer:
         schedule_recap(thread.id)
-    return thread_out(thread, ThreadPolicy.from_settings())
+    prompt = await safe_line(VIDEO_GOT_IT_LINE, lesson.voice, session_id=sess.id, thread_id=thread.id)
+    return thread_out(thread, ThreadPolicy.from_settings(), prompt=prompt)
 
 
 # ---- answer prompt (used by questions.stream_answer for video lessons) ----
@@ -472,6 +541,13 @@ def checkpoint_context(db: Session, doubt: Doubt, lesson: Lesson) -> str:
         return ""
     options = q["options"]
     picked = checkpoint_picks(db, doubt.session_id, doubt.checkpoint_idx, doubt.question_idx)
+    if not question_decided(db, doubt.session_id, doubt.checkpoint_idx, doubt.question_idx, q):
+        return (
+            "Checkpoint question on the board, not answered yet (the student may still pick an option):\n"
+            f"Question: {q['question']}\n"
+            + "".join(f"{'ABCD'[i]}. {o}\n" for i, o in enumerate(options))
+            + f"Wrong picks so far: {'; '.join(options[i] for i in picked if 0 <= i < len(options)) or 'none'}\n\n"
+        )
     return (
         "Checkpoint question the student just got wrong:\n"
         f"Question: {q['question']}\n"

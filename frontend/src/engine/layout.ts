@@ -39,6 +39,7 @@ interface Placed {
 function add(placed: Placed, marks: Mark[]) {
   for (const m of marks) {
     if (m.k === 'text') placed.texts.push(textBox(m))
+    else if (m.k === 'image') placed.fills.push(markBox(m)) // text keeps off a picture
     else {
       placed.segs.push(...m.segs)
       if (m.fill) placed.fills.push(markBox(m))
@@ -91,6 +92,8 @@ function shapeBlocked(marks: Mark[], placed: Placed): boolean {
   for (const m of marks) {
     if (m.k === 'text') {
       if (textBlocked(textBox(m), placed)) return true
+    } else if (m.k === 'image') {
+      if (placed.texts.some((t) => boxesHit(markBox(m), t))) return true
     } else if (m.segs.some((s) => placed.texts.some((t) => segHitsBox(s, t, 10)))) return true
   }
   return false

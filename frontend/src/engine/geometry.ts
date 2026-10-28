@@ -22,6 +22,7 @@ export interface Box {
 export type Mark =
   | { k: 'path'; d: string; color: Color; width: number; dashed?: boolean; fill?: Color; fillOpacity?: number; opacity?: number; segs: Seg[] }
   | { k: 'text'; x: number; y: number; text: string; px: number; weight: number; color: Color; anchor: 'start' | 'middle'; label?: boolean }
+  | { k: 'image'; x: number; y: number; w: number; h: number; href: string }
 
 // ---- text measurement ----
 
@@ -217,6 +218,8 @@ export function bodyMarks(a: DrawAction): Mark[] {
   switch (a.type) {
     case 'text':
       return [{ k: 'text', x: a.x, y: a.y, text: a.text, px: FONT_SIZE[a.size], weight: a.size === 'h1' ? 700 : 400, color: a.color, anchor: 'start' }]
+    case 'image':
+      return [{ k: 'image', x: a.x, y: a.y, w: a.w, h: a.h, href: a.src }]
     case 'line':
       return [stroke([a.start, a.end], a.color, 4, { dashed: a.dashed })]
     case 'arrow':
@@ -442,6 +445,7 @@ export function segsBox(segs: Seg[]): Box {
 }
 
 export function markBox(m: Mark): Box {
+  if (m.k === 'image') return { x: m.x, y: m.y, w: m.w, h: m.h }
   return m.k === 'text' ? textBox(m) : segsBox(m.segs)
 }
 

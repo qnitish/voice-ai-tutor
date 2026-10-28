@@ -17,7 +17,7 @@ from sqlalchemy.orm import Session
 from app import llm
 from app.audio import speak, speak_cached
 from app.config import settings
-from app.db import Chapter, Doubt, DoubtThread, Lesson, SessionLocal, TutorSession
+from app.db import Chapter, DoubtThread, Lesson, SessionLocal, TutorSession
 from app.prompts import RECAP_SYSTEM, VIDEO_RECAP_TEMPLATE
 from app.schemas import Spoken, ThreadOut
 from app.telemetry import Timer, log_event
@@ -75,7 +75,11 @@ def needs_recap(turns: int, audio_ms: int, policy: ThreadPolicy) -> bool:
 
 
 def thread_out(
-    thread: DoubtThread, policy: ThreadPolicy, recap: Spoken | None = None, line: Spoken | None = None
+    thread: DoubtThread,
+    policy: ThreadPolicy,
+    recap: Spoken | None = None,
+    line: Spoken | None = None,
+    prompt: Spoken | None = None,
 ) -> ThreadOut:
     """The thread as the player sees it. The recap defaults to the stored one, once the thread has ended
     (it may be prepared in the background while the thread is still open)."""
@@ -89,6 +93,7 @@ def thread_out(
         can_follow_up=can_follow_up(thread.turns, policy),
         recap=recap,
         line=line,
+        prompt=prompt,
     )
 
 
@@ -141,12 +146,6 @@ def _mark_ms(m: re.Match) -> int:
 
 def _err(e: BaseException) -> str:
     return f"{type(e).__name__}: {e}"[:300]
-
-
-def is_checkpoint_thread(db: Session, thread: DoubtThread) -> bool:
-    """Threads asked from a checkpoint's follow-up step return to the card, not the video: no recap."""
-    first = db.scalars(select(Doubt).filter_by(thread_id=thread.id).order_by(Doubt.created_at).limit(1)).first()
-    return first is not None and first.checkpoint_idx is not None
 
 
 async def make_recap(thread: DoubtThread, lesson: Lesson) -> Spoken | None:
@@ -209,7 +208,7 @@ async def close_thread(
     """
     policy = ThreadPolicy.from_settings()
     recap = None
-    if needs_recap(thread.turns, thread.audio_ms, policy) and not is_checkpoint_thread(db, thread):
+    if needs_recap(thread.turns, thread.audio_ms, policy):
         db.commit()
         recap = await thread_recap(db, thread, lesson)
     thread.status = status
@@ -238,7 +237,7 @@ async def prepare_recap(thread_id: str) -> None:
         thread = db.get(DoubtThread, thread_id)
         if not thread or thread.recap or thread.status != "open":
             return
-        if not needs_recap(thread.turns, thread.audio_ms, policy) or is_checkpoint_thread(db, thread):
+        if not needs_recap(thread.turns, thread.audio_ms, policy):
             return
         lesson = db.get(TutorSession, thread.session_id).lesson
         lesson.chapters  # loaded now; make_recap reads them after the session is closed

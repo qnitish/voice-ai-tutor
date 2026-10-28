@@ -186,7 +186,8 @@ export class SkiaPainter {
     }
     if (item.k === 'glow') this.glow(c, item.mark, item.color, item.p)
     else if (item.mark.k === 'path') this.path(c, item.mark, item.p)
-    else this.text(c, item.mark, item.p)
+    else if (item.mark.k === 'text') this.text(c, item.mark, item.p)
+    // Pictures (checkpoint diagrams) are only drawn by the SVG board for now
     if (moved) c.restore()
   }
 

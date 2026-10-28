@@ -15,6 +15,7 @@ import type {
   Spoken,
   Thread,
   TutorSession,
+  VideoCheckResult,
   VideoQuestionResult,
   VideoSessionState,
 } from '@/lib/types'
@@ -107,7 +108,12 @@ export const api = {
     http.post(`/sessions/${sessionId}/video/position`, { at_ms: Math.round(atMs) }),
   checkpointAnswer: (sessionId: string, checkpointIdx: number, questionIdx: number, chosenIndex: number, kind: 'first' | 'retry' = 'first') =>
     http
-      .post<CheckResult>(`/sessions/${sessionId}/checkpoints/${checkpointIdx}/answer`, { question_idx: questionIdx, chosen_index: chosenIndex, kind })
+      .post<VideoCheckResult>(`/sessions/${sessionId}/checkpoints/${checkpointIdx}/answer`, { question_idx: questionIdx, chosen_index: chosenIndex, kind })
+      .then((r) => r.data),
+  /** The Solution button: routed like a spoken "show me the solution" (threadId: the open thread at the question) */
+  checkpointSolution: (sessionId: string, checkpointIdx: number, questionIdx: number, threadId: string | null = null) =>
+    http
+      .post<VideoQuestionResult>(`/sessions/${sessionId}/checkpoints/${checkpointIdx}/solution`, { question_idx: questionIdx, thread_id: threadId }, { timeout: QUESTION_TIMEOUT_MS })
       .then((r) => r.data),
   checkpointSkip: (sessionId: string, checkpointIdx: number, questionIdx: number) =>
     http.post(`/sessions/${sessionId}/checkpoints/${checkpointIdx}/skip`, { question_idx: questionIdx }),

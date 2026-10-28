@@ -546,6 +546,38 @@ Return JSON only:
 
 {SPEECH_RULES}"""
 
+SOLUTION_SYSTEM = f"""\
+You write the worked, step-by-step solution of a multiple-choice question from a recorded lecture. The student asks
+for it after answering; the tutor speaks each step as the teacher of the lecture (say "I" and "we") while it is
+written on a whiteboard right below the question, which is already on the board: never write the question or the
+options again. You get the question, its lettered options, the correct option and its explanation, and the
+transcript of the part of the lecture it comes from, with [mm:ss] time marks.
+
+Use the lecture's own method, notation and sign convention (from the transcript). Steps: what is given, the idea or
+equation from the lecture and why it applies, the substitution with numbers or symbols, the result, and which
+option that matches. For a question without numbers, the steps are the reasoning. 3 to 6 steps.
+
+Return JSON only:
+{{"final_option": "B", "steps": [{{"say": "...", "draw": [...]}}]}}
+- "final_option": the letter your solution arrives at; it must be the correct option.
+- Each step: one or two short spoken sentences ("say") and at most 3 draw actions. The first step writes the heading
+  "Solution" (size h2, at x=60, y=80); then mostly text lines at size body, one per step, below each other
+  (x=60, y increasing by about 70). Write equations as they would be written, e.g. "v = v₀ − g t".
+
+{SPEECH_RULES_EN}
+
+{DRAW_SPEC}"""
+
+SOLUTION_CHECK_SYSTEM = """\
+You check a worked solution of a multiple-choice physics question before students see it. You get the question,
+its lettered options and the solution's steps (what is spoken and what is written).
+
+Return JSON only:
+{"option": "B", "correct": true, "problems": ""}
+- "option": the letter of the option the solution concludes with.
+- "correct": true only if every step is physically and mathematically right and the conclusion follows.
+- "problems": what is wrong, if anything (empty when correct)."""
+
 # Played after a wrong retry's replay, while the mic is open (video lessons are English only)
 CHECKPOINT_FOLLOWUP = "Which part confused you? Ask me, or let's continue."
 
@@ -582,6 +614,9 @@ Choose one intent:
   "what have we discussed so far?", "what is this lecture about?").
 - "continue": the student says they understood or wants to move on ("got it", "clear", "continue", "next"), with
   no question.
+- "solution": only when a "Checkpoint question on screen" is given: the student asks for its full worked solution
+  ("solve it", "show me the solution", "how do we get this answer step by step"). A question about one option or
+  one idea of it is "confused" instead.
 - "off_topic": not about this lecture or its prerequisites.
 - "unclear": empty, noise, or not understandable.
 Never use "clarify": when the speech is garbled, pick the most likely intent and rewrite the question as best you can.
@@ -645,6 +680,11 @@ re-teach the whole section. The callback line already restated the doubt, so ski
 answer.
 If a "Checkpoint question" with the student's picks is given, the student just got that question wrong and is
 telling you where they got stuck: name the mistake behind the option(s) they picked, then explain the right idea.
+If the checkpoint question is marked "not answered yet", the student is still trying it: never say or hint which
+option is right and never rule options in or out; give one hint about the idea or the first step, then let them try.
+- "solution": solve the checkpoint question step by step, written below it on the board (do not write the question
+  or the options again): what is given, the idea or equation from the lecture, the substitution, the result, and
+  the option it matches. 3 to 6 spoken lines.
 If the doubt is a yes/no question, the first spoken line after the framing starts with "Yes" or "No" and answers
 exactly that.
 If the doubt repeats one of the "Earlier doubts in this thread", the earlier answer did not work: say so in a few
@@ -666,13 +706,15 @@ instead of writing it again. No openers such as "let me explain it another way" 
 The first line writes a short heading on the board (size h2, at x=60, y=80): for the doubt, or for a follow-up the
 specific point it asks about (e.g. "With numbers"), never the doubt's heading again.
 The last line may check understanding with a small question back to the student, only when it helps; never after a
-"reply" that was right, and never the same question as before.
+"reply" that was right, and never the same question as before. The student can only answer by voice and the lecture
+goes on by itself after a few seconds of silence, so such a question ends with telling them to press the mic, e.g.
+"Which way would it start moving? Press the mic and tell me."
 Example of the shape:
 {{"source": "Teacher: the packet keeps the balloon's upward velocity when released, then gravity slows it (v = u - g t)."}}
 {{"say": "So you're asking why the packet first goes up, let's see.", "draw": [{{"type":"text","id":"t1","x":60,"y":80,"text":"Why does the packet go up?","size":"h2","color":"ink"}}]}}
 {{"say": "When the packet leaves the balloon, it still has the balloon's upward velocity.", "draw": [{{"type":"body","id":"o1","x":1100,"y":600,"shape":"box","label":"packet","vectors":[{{"deg":90,"label":"u","color":"blue"}},{{"deg":270,"label":"g","color":"red"}}],"color":"ink"}}]}}
 {{"say": "Gravity pulls it down, so that upward speed drops to zero, and only then does it start falling.", "draw": [{{"type":"text","id":"t2","x":60,"y":200,"text":"v = u − g t","size":"body","color":"ink"}}]}}
-{{"say": "Tell me, if the balloon were going down instead, which way would the packet start moving?", "draw": [{{"type":"text","id":"t3","x":60,"y":260,"text":"Balloon going down → ?","size":"body","color":"red"}}]}}
+{{"say": "Tell me, if the balloon were going down instead, which way would the packet start moving? Press the mic and tell me.", "draw": [{{"type":"text","id":"t3","x":60,"y":260,"text":"Balloon going down → ?","size":"body","color":"red"}}]}}
 
 {SPEECH_RULES_EN}
 
@@ -702,16 +744,21 @@ VIDEO_ACKS = {
     "prerequisite": "Okay, let's first understand the basics of this.",
     "confused": "No problem, let me explain it another way.",
     "repeat": "Sure, let's hear that part again.",
-    "unclear": "Sorry, I couldn't hear you properly. Could you say that again?",
+    "unclear": "Sorry, I couldn't hear you properly. Press the mic and say that again.",
     "off_topic": "Hmm, let's stay with the lecture for now.",
     "continue": "Okay, let's continue.",
+    "solution": "Sure, let's solve it step by step.",
 }
+# Asked for the solution of a checkpoint question before answering it
+VIDEO_SOLUTION_LATER = "Try answering it first. After that, I'll show you the full solution."
 # A later chapter's doubt asked inside an open thread is answered right away (the student is already paused)
 VIDEO_ACK_COVERED_NOW = "Good question! Since we're paused anyway, let's look at it right now."
 # A doubt over the follow-up cap is not answered: a neutral ack, then the capped line (no promise either way)
 VIDEO_ACK_NEUTRAL = "Okay."
 # Thread lines (docs/plan/video-lesson-spec.md 1.1)
 VIDEO_FOLLOWUP_LINE = "Sure, which part is still unclear? Ask me."
+# Asked after every answer; a spoken "got it" moves on, anything else is a follow-up
+VIDEO_GOT_IT_LINE = "Did you get it? You can unmute yourself and answer, or if you got it, we can move on."
 VIDEO_CAPPED_LINE = "Let's continue with the lecture. Ask me again at the end and we'll go through it."
 VIDEO_SORRY_LINE = "Sorry, something went wrong there. Let's continue with the lecture."
 # Recap when the LLM fails or returns nothing

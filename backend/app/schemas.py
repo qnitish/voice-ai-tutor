@@ -408,6 +408,8 @@ Intent = Literal[
     "covered_later", "not_covered", "prerequisite", "confused", "repeat", "continue", "off_topic", "unclear", "clarify",
     # Video lessons only: the student answers or reacts to the tutor; asks for the lecture so far / its topics
     "reply", "overview",
+    # Video checkpoints only: the student asks for the worked solution of the question on screen
+    "solution",
 ]
 AnswerWhen = Literal["none", "now", "replay", "step_end", "scene_end", "target_scene"]
 
@@ -603,6 +605,12 @@ class CheckOut(BaseModel):
     feedback: Spoken
 
 
+class VideoCheckOut(CheckOut):
+    """A checkpoint answer: also, once the answer is shown (right, or no tries left), the explanation spoken."""
+
+    explanation_spoken: Spoken | None = None
+
+
 class SummaryOut(BaseModel):
     lines: list[str]
     weak_concepts: list[str]
@@ -669,6 +677,14 @@ class ClipOut(BaseModel):
     duration_ms: int
 
 
+class QuestionImage(BaseModel):
+    """A diagram shown beside a checkpoint question on the board (app.prep.question_images)."""
+
+    url: str
+    w: int  # pixel size, for the board layout's aspect ratio
+    h: int
+
+
 class CheckpointQuestion(BaseModel):
     """One question of a checkpoint, as stored in checkpoints.questions and sent to the player."""
 
@@ -685,6 +701,9 @@ class CheckpointQuestion(BaseModel):
     replay: ReplayRange | None = None  # the teacher explaining this concept
     reteach: list[ClipOut] = []  # generated re-explanation, after the replay
     followup: Spoken | None = None  # "Which part confused you? Ask me, or let's continue."
+    explanation_audio: Spoken | None = None  # the explanation's first sentences, spoken once the answer is shown
+    solution: list[ClipOut] = []  # step-by-step solution on the board, only when the student asks (app.prep.solutions)
+    image: QuestionImage | None = None  # diagram beside the question on the board
 
 
 class CheckpointOut(BaseModel):
@@ -716,6 +735,8 @@ class ThreadOut(BaseModel):
     recap: Spoken | None = None
     # A line to play now, e.g. "Which part is still unclear? Ask me." or the capped "Let's continue…"
     line: Spoken | None = None
+    # Spoken after the answer of an open thread: "Did you get it?…" (the student replies by voice)
+    prompt: Spoken | None = None
 
 
 class VideoQuestionOut(BaseModel):
@@ -733,6 +754,11 @@ class VideoQuestionOut(BaseModel):
     ack: Spoken | None  # None for a follow-up answered now: its answer continues on the board
     callback: Spoken | None = None
     thread: ThreadOut
+
+
+class SolutionIn(BaseModel):
+    question_idx: int
+    thread_id: str | None = None  # the open thread at the question, if any (the solution is then a follow-up)
 
 
 class ThreadReplyIn(BaseModel):

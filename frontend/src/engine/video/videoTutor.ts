@@ -12,8 +12,9 @@ import { liftBoard, scrollFor, Segment } from '@/engine/followup'
 import type { MicHost } from '@/engine/host'
 import { layoutStep } from '@/engine/layout'
 import { loadBoardFonts, schedule } from '@/engine/tutor'
-import { chapterAt, clampSeek, doneCheckpoints, dueCheckpoint, resumePointMs } from '@/engine/video/checkpoints'
+import { chapterAt, clampSeek, doneCheckpoints, dueCheckpoint, resumeAfterCheckpoint, resumePointMs } from '@/engine/video/checkpoints'
 import { restoreDoubts, statusFor } from '@/engine/video/doubts'
+import { markRight, markWrong, note, quizLayout, type QuizLayout } from '@/engine/video/quizBoard'
 import { captionMs, Speech } from '@/engine/video/speech'
 import { api, streamAnswer } from '@/lib/api'
 import { t } from '@/lib/i18n'
@@ -23,12 +24,14 @@ import type {
   Checkpoint,
   CheckpointQuestion,
   Clip,
+  Color,
   DrawAction,
   Lesson,
   PlayerPolicy,
   ReplayRange,
   Spoken,
   Thread,
+  VideoCheckResult,
   VideoQuestionResult,
   VideoSessionState,
 } from '@/lib/types'
@@ -38,12 +41,15 @@ import { canSeek, type CheckpointView, initialVideoState, micState, setVideo, us
 const get = useVideo.getState
 
 /** Used when a lesson carries no policy (mirrors backend/app/config.py) */
-const DEFAULT_POLICY: PlayerPolicy = { max_followups: 3, recap_after_turns: 2, recap_after_seconds: 45, rewind_ms: 3000, idle_ms: 20_000 }
+const DEFAULT_POLICY: PlayerPolicy = { max_followups: 3, recap_after_turns: 2, recap_after_seconds: 30, rewind_ms: 3000, idle_ms: 10_000 }
 const SAVE_EVERY_MS = 5000
 /** start(fromMs) asks a not-done checkpoint this close to fromMs right away */
 const CHECKPOINT_SNAP_MS = 500
 /** An answer stream that delivers no line for this long is given up (the thread then ends with the sorry line) */
 const ANSWER_STALL_MS = 30_000
+/** How long the options take to write after the question is read, and the longest a silent note takes */
+const OPTIONS_MS = 2500
+const NOTE_SILENT_MS = 4000
 
 /** video: the lecture plays or is paused; thread: a doubt holds it; checkpoint: a card is up; ending: summary */
 type Phase = 'video' | 'thread' | 'checkpoint' | 'ending'
@@ -140,10 +146,15 @@ export class VideoTutor implements MicHost {
   private saveTimer = 0
   /** Resolves the checkpoint question on screen (Continue or Skip) */
   private questionResolve: (() => void) | null = null
+  /** The checkpoint question written on the board: its layout, where the next note goes, and the board as the
+   *  question left it (brought back when a doubt or the solution asked there ends) */
+  private quiz: { layout: QuizLayout; bottom: number; drawn: DrawAction[] } | null = null
   /** Cuts a teacher replay short on stop() */
   private replayStop: (() => void) | null = null
   /** Set by a seek back from a checkpoint card: the checkpoint stops asking and the video resumes here */
   private leaveTo: number | null = null
+  /** The recap of a long thread asked on the current checkpoint's card, played when the video resumes after it */
+  private checkpointRecap: Spoken | null = null
   private started = false
   private stopped = false
 
@@ -500,8 +511,10 @@ export class VideoTutor implements MicHost {
     setVideo({ overlay: true })
     if (!p.segment) {
       const drawn = usePlayer.getState().drawn
-      if (threadId === this.boardThread && drawn.length) {
+      // A follow-up in the thread on the board, or a doubt / solution at a checkpoint: below what is there
+      if ((threadId === this.boardThread || (this.quiz && this.phase === 'checkpoint')) && drawn.length) {
         p.segment = new Segment(drawn, ++this.boardSegments)
+        this.boardThread = threadId
       } else {
         setPlayer({ layer: 'doubt', drawn: [], active: [], clipTime: 0, boardScroll: 0 })
         this.boardThread = threadId
@@ -572,7 +585,7 @@ export class VideoTutor implements MicHost {
   private settle(gen: number) {
     const now = this.nowAnswer
     if (now) return void this.guarded('video.thread_resume', gen, (g) => this.resumeNow(now, g))
-    if (get().thread?.status === 'open') this.prompt(gen, this.promptFollowup)
+    if (get().thread?.status === 'open') void this.prompt(gen, this.promptFollowup)
     else this.closeThread(gen)
   }
 
@@ -596,7 +609,7 @@ export class VideoTutor implements MicHost {
     this.nowAnswer = null
     if (outcome === 'error') return this.failThread(gen)
     if (!(await this.afterLine(now.thread, gen))) return
-    return this.prompt(gen)
+    return this.prompt(gen, false, now.thread.prompt ?? null)
   }
 
   /** A new question replaced the interrupted answer: its stream stops and the doubt shows what was heard of it. */
@@ -692,6 +705,8 @@ export class VideoTutor implements MicHost {
       this.showPaused(seekMs ?? resumePointMs(ctx.atMs, this.chapters, this.policy.rewind_ms))
       if (!(await this.say(thread.recap, gen))) return
     }
+    // Back to the card for now: the recap plays once the checkpoint hands back to the video
+    if (ctx.kind === 'checkpoint' && thread.recap) this.checkpointRecap = thread.recap
     this.closeThread(gen, seekMs)
   }
 
@@ -715,19 +730,27 @@ export class VideoTutor implements MicHost {
     const ctx = this.threadCtx
     setVideo({ thread: null, promptEndsAt: null, awaitingFollowup: false })
     if (ctx.kind === 'checkpoint') {
-      setVideo({ mode: 'checkpoint', checkpoint: { ...ctx.view, busy: false }, overlay: false, caption: '' })
-      setPlayer({ drawn: [], active: [], clipTime: 0, boardScroll: 0, caption: '' })
+      // Back to the question as it was on the board (the doubt's or solution's answer below it is cleared)
+      setVideo({ mode: 'checkpoint', checkpoint: { ...ctx.view, busy: false }, overlay: !!this.quiz, caption: '' })
+      setPlayer({ layer: 'doubt', drawn: this.quiz?.drawn ?? [], active: [], clipTime: 0, boardScroll: 0, caption: '' })
+      this.boardThread = null
+      this.boardSegments = 0
       return
     }
     this.phase = 'video'
     this.resumeVideo(seekMs ?? resumePointMs(ctx.atMs, this.chapters, this.policy.rewind_ms))
   }
 
-  /** "Got it?" (or, after "Ask another", wait for the follow-up): the idle timer ends the thread. */
-  private prompt(gen: number, followup = false) {
+  /**
+   * "Got it?" (or, after "Ask another", wait for the follow-up): the idle timer ends the thread. `ask` is the
+   * teacher's spoken "Did you get it?…": the mic is open while she asks, and the wait starts once she has.
+   */
+  private async prompt(gen: number, followup = false, ask: Spoken | null = null) {
     if (!this.live(gen)) return
     this.clearIdle()
-    setVideo({ mode: 'thread_prompt', promptEndsAt: Date.now() + this.policy.idle_ms, awaitingFollowup: followup })
+    setVideo({ mode: 'thread_prompt', awaitingFollowup: followup })
+    if (ask && !(await this.say(ask, gen))) return
+    setVideo({ promptEndsAt: Date.now() + this.policy.idle_ms })
     this.idleTimer = window.setTimeout(() => {
       if (get().mode === 'thread_prompt') void this.guarded('video.thread_idle', this.gen, (g) => this.abandon('idle', g))
     }, this.policy.idle_ms)
@@ -833,6 +856,7 @@ export class VideoTutor implements MicHost {
     const v = this.video
     if (!v || this.phase !== 'video' || this.stopped) return
     this.phase = 'checkpoint'
+    this.checkpointRecap = null
     // Closes the mic right away: with no card yet, a press during the fade-out below would have nowhere to go
     setVideo({ mode: 'checkpoint' })
     this.clearIdle()
@@ -845,7 +869,9 @@ export class VideoTutor implements MicHost {
     setVideo({
       mode: 'checkpoint',
       checkpoint: { idx: cp.idx, questionIdx: Math.max(0, firstIdx), stage: 'intro', wrong: [], result: null, busy: true, followup: false },
+      overlay: true,
     })
+    setPlayer({ layer: 'doubt', drawn: [], active: [], clipTime: 0, boardScroll: 0, caption: '' })
     await this.say(cp.intro) // the mic is closed here, so only stop() interrupts
     for (const [qi, q] of cp.questions.entries()) {
       if (this.stopped) return
@@ -853,32 +879,86 @@ export class VideoTutor implements MicHost {
       if (this.leaveTo !== null) return this.leaveCheckpoint()
     }
     if (this.stopped) return
-    setVideo({ checkpoint: null, caption: '' })
-    const bridge = this.bridge()
-    if (bridge && !(await this.say(bridge))) return
+    this.quiz = null
+    setVideo({ checkpoint: null, caption: '', overlay: false })
+    setPlayer({ drawn: [], active: [], clipTime: 0, boardScroll: 0, caption: '' })
+    // A long doubt thread on the card: its recap over the paused video, a few seconds back, instead of the bridge
+    const recap = atEnd ? null : this.checkpointRecap
+    this.checkpointRecap = null
+    const resumeMs = resumeAfterCheckpoint(cp.at_ms, this.chapters, this.policy.rewind_ms, recap)
+    if (recap) {
+      this.showPaused(resumeMs)
+      if (!(await this.say(recap))) return
+    } else {
+      const bridge = this.bridge()
+      if (bridge && !(await this.say(bridge))) return
+    }
     this.phase = 'video'
     if (atEnd) return this.finish()
-    this.resumeVideo(cp.at_ms)
+    this.resumeVideo(resumeMs)
   }
 
   /** The student sought back from the card: no bridge, the video plays from there. */
   private leaveCheckpoint() {
     const to = this.leaveTo ?? 0
     this.leaveTo = null
+    this.checkpointRecap = null
+    this.quiz = null
     setVideo({ checkpoint: null, caption: '' })
     this.phase = 'video'
     this.savePosition(to)
     this.resumeVideo(to)
   }
 
-  /** Show one question and read it out; the student may answer before the read-out ends. */
+  /**
+   * Write the question on the board while it is read out, then its options; A–D and the mic open once they are
+   * up. Waits until the student continues or skips.
+   */
   private async askQuestion(cp: Checkpoint, qi: number, q: CheckpointQuestion) {
-    setVideo({ checkpoint: { idx: cp.idx, questionIdx: qi, stage: 'answer', wrong: [], result: null, busy: false, followup: false } })
+    setVideo({
+      checkpoint: { idx: cp.idx, questionIdx: qi, stage: 'answer', wrong: [], result: null, busy: true, followup: false },
+      overlay: true,
+    })
+    setPlayer({ layer: 'doubt', drawn: [], active: [], clipTime: 0, boardScroll: 0 })
+    this.boardThread = null
+    this.boardSegments = 0
+    const layout = quizLayout(q.question, q.options, qi + 1, cp.questions.length, q.image ?? null)
+    this.quiz = { layout, bottom: layout.bottom, drawn: [] }
     const continued = new Promise<void>((r) => (this.questionResolve = r))
-    void this.say({ text: q.say, audio_url: q.audio_url, duration_ms: q.duration_ms })
+    const resolve = this.questionResolve
+    const live = () => this.questionResolve === resolve && !this.stopped
+    await this.ready
+    const read = { text: q.say, audio_url: q.audio_url, duration_ms: q.duration_ms }
+    if (await this.write(layout.question, read, live)) await this.write(layout.options.flat(), null, live, OPTIONS_MS)
+    if (live()) patchCheckpoint({ busy: false, followup: true })
     await continued
     this.questionResolve = null
     void this.voice.cancel()
+  }
+
+  /**
+   * Write actions on the quiz board while `spoken` plays (or over `silentMs` when there is nothing to say), the board
+   * lifting first if they go below it; false once the question was left (continue, skip, seek, stop).
+   */
+  private async write(draw: DrawAction[], spoken: Spoken | null, live: () => boolean, silentMs = 0): Promise<boolean> {
+    if (!live()) return false
+    await liftBoard(scrollFor(usePlayer.getState().boardScroll, draw), () => this.stopped)
+    const holdMs = spoken ? captionMs(spoken.text) : silentMs
+    const timeline = schedule(draw, spoken?.audio_url && spoken.duration_ms ? spoken.duration_ms : holdMs)
+    if (spoken) setVideo({ caption: spoken.text })
+    setPlayer({ active: timeline, clipTime: 0, caption: spoken?.text ?? '' })
+    await this.voice.play(spoken?.audio_url ?? '', (ms) => setPlayer({ clipTime: ms }), holdMs)
+    setPlayer((s) => ({ drawn: [...s.drawn, ...timeline.map((a) => a.action)], active: [], clipTime: 0 }))
+    if (this.quiz) this.quiz.drawn = usePlayer.getState().drawn
+    return live()
+  }
+
+  /** A hint or explanation written below what is on the quiz board, while it is spoken (silently when not voiced). */
+  private writeNote(id: string, body: string, color: Color, spoken: Spoken | null, live: () => boolean): Promise<boolean> {
+    if (!this.quiz) return Promise.resolve(live())
+    const { actions, bottom } = note(id, body, this.quiz.bottom, color)
+    this.quiz.bottom = bottom
+    return this.write(actions, spoken, live, Math.min(captionMs(body), NOTE_SILENT_MS))
   }
 
   /** The question on screen, while its card is up (null once it was continued or a thread took over). */
@@ -902,7 +982,7 @@ export class VideoTutor implements MicHost {
     const live = () => this.questionResolve === resolve && !this.stopped
     patchCheckpoint({ busy: true })
     void this.voice.cancel()
-    let result
+    let result: VideoCheckResult
     try {
       result = await api.checkpointAnswer(this.sessionId, view.idx, view.questionIdx, chosen, kind)
     } catch (e) {
@@ -912,38 +992,48 @@ export class VideoTutor implements MicHost {
       return
     }
     this.recordAnswer({ checkpoint_idx: view.idx, question_idx: view.questionIdx, kind, correct: result.correct })
-    if (!live()) return
+    if (!live() || !this.quiz) return
+    const boxes = this.quiz.layout.boxes
     const wrong = result.correct ? view.wrong : [...view.wrong, chosen]
-    if (result.correct || kind === 'retry') patchCheckpoint({ result, wrong, stage: 'done' })
-    else patchCheckpoint({ result, wrong, stage: 'retry' })
-    await this.say(result.feedback)
-    if (live() && !result.correct && kind === 'first') {
-      const hint = q.why_wrong[chosen]
-      if (hint) await this.say(hint)
-    } else if (live() && !result.correct) {
-      await this.reteach(q, live)
+    const hint = !result.correct && kind === 'first' ? q.why_wrong[chosen] : null
+    if (hint) {
+      // Crossed out on the board, the hint written below, one more try
+      patchCheckpoint({ result, wrong, stage: 'retry' })
+      if (await this.write(markWrong(boxes[chosen], chosen), result.feedback, live)) {
+        await this.writeNote(`qz-hint${wrong.length}`, `Hint: ${hint.text}`, 'orange', hint, live)
+      }
+    } else {
+      // Answered: the right option boxed and ticked (a wrong pick crossed out), then the explanation
+      patchCheckpoint({ result, wrong, stage: 'done' })
+      const marks = [...(result.correct ? [] : markWrong(boxes[chosen], chosen)), ...markRight(boxes[result.correct_index], result.correct_index)]
+      if (await this.write(marks, result.feedback, live)) {
+        await this.writeNote('qz-why', result.explanation, 'green', result.explanation_spoken, live)
+      }
+      if (live() && !result.correct && kind === 'retry') await this.reteach(q, live)
     }
-    if (live()) patchCheckpoint({ busy: false })
+    if (live()) patchCheckpoint({ busy: false, followup: true })
   }
 
   /** After a second miss: the teacher's replay (card hidden), re-teach clips on the overlay, then the follow-up. */
   private async reteach(q: CheckpointQuestion, live: () => boolean) {
     if (q.replay) {
       patchCheckpoint({ stage: 'reteach' })
+      setVideo({ overlay: false })
       await this.replayTeacher(q.replay)
+      if (live()) setVideo({ overlay: true, caption: '' })
     }
     if (live() && q.reteach.length) {
       patchCheckpoint({ stage: 'reteach' })
-      setVideo({ overlay: true })
-      setPlayer({ layer: 'doubt', drawn: [], active: [], clipTime: 0, boardScroll: 0 })
-      for (const clip of q.reteach) {
-        if (!live() || !(await this.playClip(clip))) break
+      const segment = new Segment(usePlayer.getState().drawn, 1)
+      for (const [i, clip] of q.reteach.entries()) {
+        const laid = [...(i === 0 ? segment.separator() : []), ...segment.place(clip.draw)]
+        await liftBoard(scrollFor(usePlayer.getState().boardScroll, laid), () => this.stopped)
+        if (!live() || !(await this.playClip(clip, this.gen, laid))) break
       }
-      setVideo({ overlay: false })
-      setPlayer({ drawn: [], active: [], clipTime: 0, boardScroll: 0 })
+      if (this.quiz) this.quiz.drawn = usePlayer.getState().drawn
     }
     if (!live()) return
-    patchCheckpoint({ stage: 'done', followup: !!q.followup })
+    patchCheckpoint({ stage: 'done', followup: true })
     if (q.followup) await this.say(q.followup)
   }
 
@@ -977,6 +1067,40 @@ export class VideoTutor implements MicHost {
       })
       void fadeTo(v, 1, FADE_MS)
     })
+  }
+
+  /**
+   * The Solution button (once the question is answered): routed like a spoken "show me the solution", so the
+   * worked solution plays in a thread of its own below the question, with "Got it?" and follow-ups.
+   */
+  async showSolution() {
+    const cur = this.currentQuestion()
+    if (!cur || cur.view.busy || cur.view.stage !== 'done' || this.micHold || this.routing) return
+    const { view } = cur
+    const gen = ++this.gen
+    this.routing = true
+    patchCheckpoint({ busy: true })
+    let res: VideoQuestionResult
+    try {
+      res = await api.checkpointSolution(this.sessionId, view.idx, view.questionIdx)
+    } catch (e) {
+      reportError('video.solution', e, { checkpoint_idx: view.idx, question_idx: view.questionIdx })
+      this.routing = false
+      if (this.live(gen)) patchCheckpoint({ busy: false })
+      setVideo({ error: t(this.lesson, 'questionFailed') })
+      return
+    }
+    this.routing = false
+    if (!this.live(gen)) return
+    const ctx: ThreadContext = { kind: 'checkpoint', view: { ...view, busy: false } }
+    this.threadCtx = ctx
+    const atMs = this.checkpoints[view.idx].at_ms
+    setVideo((s) => ({
+      checkpoint: null,
+      thread: res.thread,
+      doubts: [...s.doubts, { id: res.doubt_id, atMs, threadId: res.thread_id, question: res.question, intent: res.intent, status: statusFor(res.answer_when) }],
+    }))
+    await this.guarded('video.thread', gen, () => this.handleRouted(res, ctx, gen))
   }
 
   /** Skip the current checkpoint question */

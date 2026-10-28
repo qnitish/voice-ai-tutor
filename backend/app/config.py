@@ -70,11 +70,11 @@ class Settings(BaseSettings):
     # Doubt threads: follow-up turns after the first answer, and when a thread ends with a recap
     video_max_followups: int = 3
     video_recap_after_turns: int = 2  # answered doubts in the thread (2 = at least one follow-up)
-    video_recap_after_seconds: int = 45  # spoken answer audio in the thread
+    video_recap_after_seconds: int = 30  # spoken answer audio in the thread
     # Resume after a doubt or checkpoint this far before where the video was paused (not before the chapter start)
     video_rewind_ms: int = 3000
-    # A "Got it?" prompt left unanswered this long ends the thread and the video resumes
-    video_thread_idle_s: int = 20
+    # Silence after an answer (voice only, no buttons) this long ends the thread: recap if due, then the video
+    video_thread_idle_s: int = 10
     # Checkpoint planning in prep
     checkpoint_min_gap_s: int = 120
     checkpoint_max: int = 8
