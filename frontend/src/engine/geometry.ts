@@ -8,8 +8,8 @@ import type { Bond, Color, DrawAction, Point } from '@/lib/types'
 export const BOARD_W = 1600
 export const BOARD_H = 900
 export const FONT_STACK = "Kalam, 'Noto Sans Math', 'Noto Sans', sans-serif"
-export const FONT_SIZE = { h1: 52, h2: 38, body: 30, small: 22 } as const
-export const LABEL_PX = 28
+export const FONT_SIZE = { h1: 58, h2: 44, body: 36, small: 28 } as const
+export const LABEL_PX = 34
 
 export type Seg = [Point, Point]
 export interface Box {
@@ -254,7 +254,7 @@ export function bodyMarks(a: DrawAction): Mark[] {
     }
     case 'charge': {
       const marks: Mark[] = [ring(a.x, a.y, CHARGE_R, a.color, 3, a.color, 0.15)]
-      marks.push({ k: 'text', x: a.x, y: a.y + 10, text: a.sign === '-' ? '−' : '+', px: 30, weight: 700, color: a.color, anchor: 'middle' })
+      marks.push({ k: 'text', x: a.x, y: a.y + 10, text: a.sign === '-' ? '−' : '+', px: 36, weight: 700, color: a.color, anchor: 'middle' })
       for (const [deg, color] of [
         [a.velocity_deg, 'blue'],
         [a.force_deg, 'red'],
@@ -288,7 +288,7 @@ export function bodyMarks(a: DrawAction): Mark[] {
         const color: Color = north ? 'red' : 'blue'
         return [
           stroke([[b.x, b.y], [b.x + b.w, b.y], [b.x + b.w, b.y + b.h], [b.x, b.y + b.h]], color, 4, { fill: color, fillOpacity: 0.12 }, true),
-          { k: 'text', x: b.x + b.w / 2, y: b.y + b.h / 2 + 12, text: north ? 'N' : 'S', px: 34, weight: 700, color, anchor: 'middle' } as Mark,
+          { k: 'text', x: b.x + b.w / 2, y: b.y + b.h / 2 + 12, text: north ? 'N' : 'S', px: 40, weight: 700, color, anchor: 'middle' } as Mark,
         ]
       })
     }
@@ -413,13 +413,13 @@ function flowMarks(a: Extract<DrawAction, { type: 'flow' }>): Mark[] {
       const top = y + px * 0.4
       const bottom = y + px * 0.4 + 56
       marks.push(...arrowMarks([ax, top], [ax, bottom], 'blue', 3, 16))
-      if (a.connector) marks.push({ k: 'text', x: ax + 16, y: (top + bottom) / 2 + 9, text: a.connector, px: 24, weight: 400, color: 'blue', anchor: 'start' })
+      if (a.connector) marks.push({ k: 'text', x: ax + 16, y: (top + bottom) / 2 + 9, text: a.connector, px: 30, weight: 400, color: 'blue', anchor: 'start' })
       y += px * 1.05 + 64
     } else {
       const gap = a.connector ? Math.max(90, textWidth(a.connector, 24) + 40) : 90
       const ay = y - px * 0.3
       marks.push(...arrowMarks([x + w + 14, ay], [x + w + gap - 14, ay], 'blue', 3, 16))
-      if (a.connector) marks.push({ k: 'text', x: x + w + gap / 2, y: ay - 14, text: a.connector, px: 24, weight: 400, color: 'blue', anchor: 'middle' })
+      if (a.connector) marks.push({ k: 'text', x: x + w + gap / 2, y: ay - 14, text: a.connector, px: 30, weight: 400, color: 'blue', anchor: 'middle' })
       x += w + gap
     }
   })

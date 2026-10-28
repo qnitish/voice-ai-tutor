@@ -56,6 +56,16 @@ describe('layoutStep', () => {
     expect(b.y + b.h).toBeLessThanOrEqual(900)
   })
 
+  it('keeps a 40-character line of every size inside the board', () => {
+    for (const size of ['h1', 'h2', 'body', 'small'] as const) {
+      const [t] = layoutStep([text('t1', 1500, 880, 'Velocity at the top is zero, a = −g ĵ', size)])
+      const b = texts(t)[0]
+      expect(b.x).toBeGreaterThanOrEqual(0)
+      expect(b.x + b.w).toBeLessThanOrEqual(1600)
+      expect(b.y + b.h).toBeLessThanOrEqual(900)
+    }
+  })
+
   it('passes highlights through', () => {
     const h = { type: 'highlight', id: 'h1', target: 't1', color: 'orange' } as DrawAction
     expect(layoutStep([h], [text('t1', 60, 90, 'x')])).toEqual([h])

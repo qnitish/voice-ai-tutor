@@ -24,6 +24,8 @@ Design docs:
   the answer to what was just shown. The routing prompt's callback ends "we just covered this, so let me connect it
   to your question."
 - Spec `video-lesson-spec.md` 1.1.2 updated for this.
+- Board text 6 units larger for readability (Kalam): h1 58, h2 44, body 36, small 28, labels 34 (`geometry.ts`);
+  the draw prompt's character widths updated to match. The layout still shrinks or shifts text to keep it on the board.
 
 ---
 

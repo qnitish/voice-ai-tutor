@@ -79,7 +79,7 @@ thing from lines and circles. Angles are degrees counter-clockwise from +x (0 = 
 - {"type":"chain","id":"m1","x":0,"y":0,"groups":["CH₃","CH","CH₂","OH"],"bonds":["-","-","-"],
   "branches":[{"at":1,"groups":["CH₃"],"dir":"up","bond":"-"}],"color":"ink"}   (a structural formula: groups in a row
   joined by bonds "-", "=" or "≡" (bonds[i] joins groups i and i+1), branches hang up/down from group "at", 80px per
-  row; x,y = baseline start of the first group; about 14px per character plus 46px per bond)
+  row; x,y = baseline start of the first group; about 17px per character plus 46px per bond)
 - {"type":"ring","id":"b1","cx":0,"cy":0,"r":60,"size":6,"aromatic":true,"label":"benzene","color":"ink"}
   (a ring of 3-6 atoms; aromatic draws benzene's inner circle)
 - {"type":"body","id":"o1","x":0,"y":0,"shape":"ball|box","label":"packet",
@@ -107,7 +107,7 @@ Symbols: use the right mark for the right thing. Every vector (force, velocity, 
 or block arrow with its symbol as label (F, v, I, B), never a bare line. ⊙/⊗ (field_mark) only for a field out of /
 into the page. Board text may use Unicode maths: μ₀, θ, π, ×, ·, ², ³, ₂, ∫, ∮, ∬, ∂, →, ⊥, ≈. Keep formulas short and
 write them exactly as the lecture does (check brackets: "x(1 + cos y)" is not "x + cos y").
-Approx character width: h1 25px, h2 18px, body 14px, small 10px. Labels are short: a symbol or 1-2 words.
+Approx character width: h1 28px, h2 21px, body 17px, small 13px. Labels are short: a symbol or 1-2 words.
 Layout: each board starts blank. Put the title (h1) at x=60, y=90. Use the left column (x 60-760) for text and formulas,
 one item per line at the line heights above, and the right column (x 860-1540) for the diagram; never put text in the
 right column except inside blocks and labels. Leave at least 30px between diagram parts, never draw a line or arrow
