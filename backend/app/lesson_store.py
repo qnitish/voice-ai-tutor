@@ -3,6 +3,7 @@
 from sqlalchemy import func, select
 from sqlalchemy.orm import Session
 
+from app.config import settings
 from app.db import Chapter, Checkpoint, Lesson, Scene, Step
 from app.quiz import shuffle_checks
 
@@ -115,3 +116,18 @@ def latest_lessons(db: Session) -> list[Lesson]:
     for lesson in rows:
         latest.setdefault(lesson.slug, lesson)
     return sorted(latest.values(), key=lambda l: (l.created_at, l.id), reverse=True)
+
+
+def is_visible(slug: str) -> bool:
+    """Whether students may see and start this lesson (settings.visible_lessons; empty: every lesson)."""
+    allowed = {s.strip() for s in settings.visible_lessons.split(",") if s.strip()}
+    return not allowed or slug in allowed
+
+
+def visible_lesson(db: Session, slug: str) -> Lesson | None:
+    """The latest version of a lesson students may open; None when it is hidden (prep scripts use latest_lesson)."""
+    return latest_lesson(db, slug) if is_visible(slug) else None
+
+
+def visible_lessons(db: Session) -> list[Lesson]:
+    return [l for l in latest_lessons(db) if is_visible(l.slug)]

@@ -6,7 +6,7 @@ from sqlalchemy.orm import Session
 from app.config import settings
 from app.db import Lesson, get_db
 from app.language import lesson_language
-from app.lesson_store import latest_lesson, latest_lessons
+from app.lesson_store import visible_lesson, visible_lessons
 from app.schemas import (
     ChapterOut,
     CheckpointOut,
@@ -108,13 +108,13 @@ def list_lessons(db: Session = Depends(get_db)):
             tags=lesson_tags(l),
             kind=l.kind,
         )
-        for l in latest_lessons(db)
+        for l in visible_lessons(db)
     ]
 
 
 @router.get("/lessons/{slug}", response_model=LessonOut)
 def get_lesson(slug: str, db: Session = Depends(get_db)):
-    lesson = latest_lesson(db, slug)
+    lesson = visible_lesson(db, slug)
     if not lesson:
         raise HTTPException(404, "Lesson not found")
     return lesson_out(lesson)

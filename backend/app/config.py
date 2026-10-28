@@ -10,6 +10,9 @@ class Settings(BaseSettings):
     model_config = SettingsConfigDict(env_file=ROOT / ".env", extra="ignore", populate_by_name=True)
 
     database_url: str = "postgresql+psycopg://tutor:tutor@localhost:5440/voice_tutor"
+    # Comma-separated slugs students can see and start (e.g. "lecture-05-video"); empty shows every lesson.
+    # Hidden lessons stay in the database and can be shown again by editing this list.
+    visible_lessons: str = ""
     data_dir: Path = ROOT / "data"
 
     # Which LLM vendor answers every LLM call; see app/providers/__init__.py (LLM_PROVIDERS)

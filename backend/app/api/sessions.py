@@ -7,7 +7,7 @@ from sqlalchemy.orm import Session
 from app import llm
 from app.audio import speak, speak_cached
 from app.db import CheckAttempt, CheckpointAnswer, CheckResult, ConceptMastery, Doubt, Guest, Lesson, TutorSession, get_db
-from app.lesson_store import latest_lesson
+from app.lesson_store import is_visible, latest_lesson, visible_lesson
 from app.voices import get_voice
 from app.progress import WEAK_BELOW, next_mastery, retry_mastery
 from app.prompts import CHECK_LINES, SUMMARY_SYSTEM, for_gender, line_for, reveal_line
@@ -132,7 +132,7 @@ def update_guest(guest_id: str, body: GuestUpdate, db: Session = Depends(get_db)
 @router.post("/sessions", response_model=SessionOut)
 def create_session(body: SessionIn, db: Session = Depends(get_db)):
     guest = db.get(Guest, body.guest_id)
-    lesson = latest_lesson(db, body.lesson_slug)
+    lesson = visible_lesson(db, body.lesson_slug)
     if not guest or not lesson:
         raise HTTPException(404, "Guest or lesson not found")
     sess = TutorSession(guest_id=guest.id, lesson_id=lesson.id)
@@ -428,7 +428,7 @@ def percent_done(sess: TutorSession) -> int:
 @router.get("/guests/{guest_id}/lessons/{slug}/resume", response_model=ResumeOut | None)
 def get_resume(guest_id: str, slug: str, db: Session = Depends(get_db)):
     get_guest_or_404(db, guest_id)
-    lesson = latest_lesson(db, slug)
+    lesson = visible_lesson(db, slug)
     if not lesson:
         raise HTTPException(404, "Lesson not found")
     return resume_point(guest_sessions(db, guest_id, [lesson.id]))
@@ -457,7 +457,8 @@ def get_progress(guest_id: str, db: Session = Depends(get_db)):
     """Per lesson, counting only sessions on its latest version (older versions had different scenes)."""
     get_guest_or_404(db, guest_id)
     out = []
-    slugs = dict.fromkeys(s.lesson.slug for s in guest_sessions(db, guest_id))  # most recent activity first
+    # Most recent activity first; hidden lessons are left out
+    slugs = dict.fromkeys(s.lesson.slug for s in guest_sessions(db, guest_id) if is_visible(s.lesson.slug))
     for slug in slugs:
         lesson = latest_lesson(db, slug)
         sessions = guest_sessions(db, guest_id, [lesson.id])
