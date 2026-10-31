@@ -7,7 +7,7 @@ import { cn } from '@/lib/utils'
 const STEP_MS = 5000
 
 /**
- * Seek bar of the lecture: progress, a tick where each chapter starts and a diamond per checkpoint (green once
+ * Seek bar of the lecture, drawn over the video (so in white): progress, a tick where each chapter starts and a diamond per checkpoint (green once
  * done). A click or the arrow keys call `onSeek`; the engine clamps a forward seek at the next open checkpoint.
  */
 export function SeekBar({
@@ -47,7 +47,7 @@ export function SeekBar({
   }
 
   return (
-    <div className="text-muted-foreground flex items-center gap-3 text-xs tabular-nums">
+    <div className="flex items-center gap-2 text-xs text-white tabular-nums">
       <span className="w-10 text-right">{mmss(positionMs)}</span>
       <div
         ref={bar}
@@ -66,8 +66,8 @@ export function SeekBar({
           disabled && 'cursor-default opacity-60',
         )}
       >
-        <div className="bg-muted absolute inset-x-0 top-1/2 h-1.5 -translate-y-1/2 overflow-hidden rounded-full">
-          <div className="bg-primary h-full rounded-full" style={{ width: pct(positionMs) }} />
+        <div className="absolute inset-x-0 top-1/2 h-1.5 -translate-y-1/2 overflow-hidden rounded-full bg-white/30">
+          <div className="h-full rounded-full bg-white" style={{ width: pct(positionMs) }} />
         </div>
         {chapters
           .filter((c) => c.start_ms > 0)
@@ -75,7 +75,7 @@ export function SeekBar({
             <span
               key={c.idx}
               title={c.title}
-              className="bg-foreground/40 absolute top-1/2 h-3 w-px -translate-y-1/2"
+              className="absolute top-1/2 h-3 w-px -translate-y-1/2 bg-white/60"
               style={{ left: pct(c.start_ms) }}
             />
           ))}
@@ -91,7 +91,7 @@ export function SeekBar({
           />
         ))}
         <span
-          className="border-primary bg-background absolute top-1/2 size-3.5 -translate-x-1/2 -translate-y-1/2 rounded-full border-2 shadow"
+          className="absolute top-1/2 size-3.5 -translate-x-1/2 -translate-y-1/2 rounded-full bg-white shadow"
           style={{ left: pct(positionMs) }}
         />
       </div>

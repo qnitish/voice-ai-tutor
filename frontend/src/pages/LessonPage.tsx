@@ -4,6 +4,7 @@ import { toast } from 'sonner'
 
 import { Board } from '@/components/Board'
 import { CheckCard } from '@/components/CheckCard'
+import { BoardCard, ControlBar } from '@/components/ControlBar'
 import { DoubtList } from '@/components/DoubtList'
 import { LessonTags } from '@/components/LessonTags'
 import { MicButton } from '@/components/MicButton'
@@ -77,8 +78,8 @@ export function LessonPage({ slug, onExit }: { slug: string; onExit: () => void 
   const overlay = check && ['check', 'listening', 'thinking'].includes(mode) ? <CheckCard tutor={tutor} /> : mode === 'summary' || mode === 'done' ? <SummaryCard onExit={onExit} /> : null
 
   return (
-    <div className="mx-auto flex w-full max-w-7xl flex-col gap-4">
-      <header className="flex flex-wrap items-center gap-3">
+    <div className="mx-auto flex w-full max-w-7xl flex-col gap-4 pb-36 lg:pb-0">
+      <header className="flex items-center gap-2 sm:gap-3">
         <Button variant="ghost" size="icon" onClick={onExit} aria-label="Back">
           <ArrowLeft className="size-4" />
         </Button>
@@ -88,51 +89,57 @@ export function LessonPage({ slug, onExit }: { slug: string; onExit: () => void 
             Scene {sceneIdx + 1}/{lesson.scenes.length}: {scene?.title}
           </p>
         </div>
-        <LessonTags tags={lesson.tags} />
-        <Progress value={progressPercent(lesson, sceneIdx, stepIdx)} className="w-40" />
+        <div className="hidden md:block">
+          <LessonTags tags={lesson.tags} />
+        </div>
+        <Progress value={progressPercent(lesson, sceneIdx, stepIdx)} className="w-20 shrink-0 sm:w-40" />
       </header>
 
       <div className="grid gap-4 lg:grid-cols-[1fr_300px]">
         <div className="flex flex-col gap-3">
-          <div className="relative aspect-video overflow-hidden rounded-xl border bg-white shadow-sm">
-            {lesson.renderer === 'skia' ? (
-              <Suspense fallback={null}>
-                <SkiaBoard />
-              </Suspense>
-            ) : (
-              <Board />
-            )}
-            {layer === 'doubt' && mode !== 'summary' && mode !== 'done' && (
-              <Badge className="absolute top-3 right-3 bg-amber-500">Doubt</Badge>
-            )}
+          <div className="relative">
+            <div className="relative aspect-video overflow-hidden rounded-xl border bg-white shadow-sm">
+              {lesson.renderer === 'skia' ? (
+                <Suspense fallback={null}>
+                  <SkiaBoard />
+                </Suspense>
+              ) : (
+                <Board />
+              )}
+              {layer === 'doubt' && mode !== 'summary' && mode !== 'done' && (
+                <Badge className="absolute top-3 right-3 bg-amber-500">Doubt</Badge>
+              )}
+            </div>
             {mode === 'idle' && (
-              <div className="absolute inset-0 flex flex-col items-center justify-center gap-4 bg-white/80">
-                <p className="text-muted-foreground max-w-sm text-center text-sm">
-                  {lesson.scenes.length} scenes. Tap or hold the mic anytime to ask a doubt in Hindi or Hinglish.
-                </p>
-                {resume ? (
-                  <div className="flex flex-wrap justify-center gap-3">
-                    <Button size="lg" onClick={() => void start(resume)}>
-                      <Play className="size-4" /> Continue from scene {resume.scene_idx + 1}
+              <BoardCard dim="md:bg-white/80">
+                <div className="flex flex-col items-center gap-4">
+                  <p className="text-muted-foreground max-w-sm text-center text-sm">
+                    {lesson.scenes.length} scenes. Tap or hold the mic anytime to ask a doubt in Hindi or Hinglish.
+                  </p>
+                  {resume ? (
+                    <div className="flex flex-wrap justify-center gap-3">
+                      <Button size="lg" onClick={() => void start(resume)}>
+                        <Play className="size-4" /> Continue from scene {resume.scene_idx + 1}
+                      </Button>
+                      <Button size="lg" variant="outline" onClick={() => void start(null)}>
+                        Start over
+                      </Button>
+                    </div>
+                  ) : (
+                    <Button size="lg" onClick={() => void start(null)}>
+                      <Play className="size-4" /> Start lesson
                     </Button>
-                    <Button size="lg" variant="outline" onClick={() => void start(null)}>
-                      Start over
-                    </Button>
-                  </div>
-                ) : (
-                  <Button size="lg" onClick={() => void start(null)}>
-                    <Play className="size-4" /> Start lesson
-                  </Button>
-                )}
-              </div>
+                  )}
+                </div>
+              </BoardCard>
             )}
-            {overlay && <div className="absolute inset-0 flex items-center justify-center bg-black/20 p-4">{overlay}</div>}
+            {overlay && <BoardCard>{overlay}</BoardCard>}
           </div>
           <p className="min-h-12 rounded-lg bg-muted px-4 py-3 text-sm leading-relaxed">{caption || ' '}</p>
         </div>
 
         <aside className="flex flex-col gap-6 rounded-xl border p-4">
-          <div className="flex items-center justify-center gap-6">
+          <ControlBar>
             <MicButton tutor={tutor} />
             <Button
               variant="outline"
@@ -144,7 +151,7 @@ export function LessonPage({ slug, onExit }: { slug: string; onExit: () => void 
             >
               {mode === 'paused' ? <Play className="size-5" /> : <Pause className="size-5" />}
             </Button>
-          </div>
+          </ControlBar>
           <div className="flex min-h-0 flex-col gap-2">
             <h2 className="text-sm font-medium">Your doubts</h2>
             <DoubtList />

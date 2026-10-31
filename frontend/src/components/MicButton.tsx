@@ -161,7 +161,7 @@ export function MicButton({ tutor, state }: { tutor: MicHost; state?: MicState }
   })
 
   return (
-    <div className="flex flex-col items-center gap-2">
+    <div className="flex max-w-full flex-col items-center gap-1.5 lg:gap-2">
       <Button
         size="icon"
         aria-label="Ask a question"
@@ -173,7 +173,7 @@ export function MicButton({ tutor, state }: { tutor: MicHost; state?: MicState }
         onPointerUp={release}
         onPointerCancel={release}
         className={cn(
-          'size-20 rounded-full shadow-lg transition-transform select-none touch-none',
+          'size-16 rounded-full shadow-lg transition-transform select-none touch-none [-webkit-touch-callout:none] lg:size-20',
           listening && 'scale-110 bg-red-600 hover:bg-red-600 animate-pulse',
         )}
       >

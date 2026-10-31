@@ -1,7 +1,7 @@
 import { Play } from 'lucide-react'
 
 import { Button } from '@/components/ui/button'
-import { Card, CardContent, CardFooter, CardHeader, CardTitle } from '@/components/ui/card'
+import { Card, CardContent, CardFooter } from '@/components/ui/card'
 import { fill, mmss } from '@/components/video/format'
 import { t } from '@/lib/i18n'
 import type { Lesson, Resume } from '@/lib/types'
@@ -13,9 +13,6 @@ export function StartCard({ lesson, resume, onStart }: { lesson: Lesson; resume:
 
   return (
     <Card className="w-full max-w-md shadow-xl">
-      <CardHeader>
-        <CardTitle>{lesson.title}</CardTitle>
-      </CardHeader>
       <CardContent>
         <p className="text-muted-foreground text-sm">{fill(t(lesson, 'startHint'), { n: lesson.chapters?.length ?? 0, q: questions })}</p>
       </CardContent>

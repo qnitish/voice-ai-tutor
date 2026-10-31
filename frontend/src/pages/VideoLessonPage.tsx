@@ -2,7 +2,7 @@ import { ArrowLeft, ChevronDown, Pause, Play } from 'lucide-react'
 import { useEffect, useState } from 'react'
 import { toast } from 'sonner'
 
-import { LessonTags } from '@/components/LessonTags'
+import { ControlBar } from '@/components/ControlBar'
 import { MicButton } from '@/components/MicButton'
 import { Button } from '@/components/ui/button'
 import { Progress } from '@/components/ui/progress'
@@ -11,11 +11,13 @@ import { CheckpointBar } from '@/components/video/CheckpointBar'
 import { ThreadPrompt } from '@/components/video/ThreadPrompt'
 import { fill } from '@/components/video/format'
 import { StartCard } from '@/components/video/StartCard'
+import { useFullscreen } from '@/components/video/useFullscreen'
 import { VideoDoubtList } from '@/components/video/VideoDoubtList'
 import { VideoPlayer } from '@/components/video/VideoPlayer'
 import { VideoSummaryCard } from '@/components/video/VideoSummaryCard'
 import { VideoTutor } from '@/engine/video/videoTutor'
 import { api } from '@/lib/api'
+import { askForMic } from '@/lib/mic'
 import { t } from '@/lib/i18n'
 import type { Lesson, Resume, VideoSessionState } from '@/lib/types'
 import { cn } from '@/lib/utils'
@@ -54,6 +56,7 @@ export function VideoLessonPage({ slug, onExit }: { slug: string; onExit: () => 
   const [tutor, setTutor] = useState<VideoTutor | null>(null)
   const [resumePoint, setResumePoint] = useState<ResumePoint | null>(null)
   const [chaptersOpen, setChaptersOpen] = useState(readChaptersOpen)
+  const { full, toggle: toggleFull } = useFullscreen()
   // The whole store: the seek position changes often anyway, and the mic state derives from several fields
   const video = useVideo()
   const { mode, positionMs, chapterIdx, caption, error } = video
@@ -96,6 +99,8 @@ export function VideoLessonPage({ slug, onExit }: { slug: string; onExit: () => 
     if (!lesson || !guest || !tutor) return
     // Safari unlocks media per element and only inside the gesture, so this runs before anything is awaited
     tutor.unlock()
+    // Ask for the mic now, before the video plays, so the prompt can't interrupt the first doubt or full screen
+    await askForMic(() => toast.error(t(lesson, 'micPermission')))
     try {
       if (from) {
         await tutor.start(lesson, from.session_id, from.position_ms ?? 0, resumePoint?.state ?? undefined)
@@ -123,8 +128,8 @@ export function VideoLessonPage({ slug, onExit }: { slug: string; onExit: () => 
     ) : null
 
   return (
-    <div className="mx-auto flex w-full max-w-7xl flex-col gap-4">
-      <header className="flex flex-wrap items-center gap-3">
+    <div className="mx-auto flex w-full max-w-7xl flex-col gap-4 pb-36 lg:pb-0">
+      <header className="flex items-center gap-2 sm:gap-3">
         <Button variant="ghost" size="icon" onClick={onExit} aria-label="Back">
           <ArrowLeft className="size-4" />
         </Button>
@@ -134,23 +139,51 @@ export function VideoLessonPage({ slug, onExit }: { slug: string; onExit: () => 
             {chapter ? fill(t(lesson, 'chapterOf'), { n: chapterIdx + 1, total: chapters.length, title: chapter.title }) : ' '}
           </p>
         </div>
-        <LessonTags tags={lesson.tags} />
-        <Progress value={durationMs ? Math.round((100 * positionMs) / durationMs) : 0} className="w-40" />
+        <Progress value={durationMs ? Math.round((100 * positionMs) / durationMs) : 0} className="w-20 shrink-0 sm:w-40" />
       </header>
 
-      <div className="grid gap-4 lg:grid-cols-[1fr_300px]">
-        <div className="flex flex-col gap-3">
-          <VideoPlayer tutor={tutor} lesson={lesson}>
+      {/*
+        Full screen keeps the same elements mounted (the engine owns the <video>) and only changes their layout:
+        video, checkpoint answers and seek bar in one column, mic and pause in a rail (right in landscape, below in
+        portrait); the header, doubts and chapters are hidden.
+      */}
+      <div
+        className={cn(
+          full
+            ? 'fixed inset-0 z-50 flex flex-col gap-3 bg-black pt-[max(env(safe-area-inset-top),0.5rem)] pr-[max(env(safe-area-inset-right),0.5rem)] pb-[max(env(safe-area-inset-bottom),0.5rem)] pl-[max(env(safe-area-inset-left),0.5rem)] landscape:flex-row'
+            : 'grid gap-4 lg:grid-cols-[1fr_300px]',
+        )}
+      >
+        <div className={cn('flex flex-col', full ? 'min-h-0 min-w-0 flex-1 gap-2' : 'gap-3')}>
+          {/* A phone held upright can't make a 16:9 video any wider; Android turns itself, iPhone needs the student */}
+          {full && <p className="hidden shrink-0 text-center text-xs text-white/60 portrait:block">{t(lesson, 'rotateHint')}</p>}
+          <VideoPlayer tutor={tutor} lesson={lesson} fullscreen={full} onToggleFullscreen={toggleFull}>
             {card}
           </VideoPlayer>
           <CheckpointBar tutor={tutor} />
           <ThreadPrompt tutor={tutor} />
-          <p className="bg-muted min-h-12 rounded-lg px-4 py-3 text-sm leading-relaxed">{caption || ' '}</p>
+          <p
+            className={cn(
+              full
+                ? 'shrink-0 rounded-md bg-white/10 px-3 py-1.5 text-xs leading-snug text-white [@media(max-height:500px)]:hidden'
+                : 'bg-muted min-h-12 rounded-lg px-4 py-3 text-sm leading-relaxed',
+              full && !caption && 'hidden',
+            )}
+          >
+            {/* Clamped inside the padding, which would otherwise show the start of a third line */}
+            <span className={cn(full && 'line-clamp-2')}>{caption || ' '}</span>
+          </p>
         </div>
 
         {/* Sticks beside the video on desktop and never grows past the viewport: the lists scroll inside their boxes */}
-        <aside className="flex flex-col gap-6 rounded-xl border p-4 lg:sticky lg:top-4 lg:max-h-[calc(100svh-2rem)] lg:overflow-y-auto">
-          <div className="flex shrink-0 items-center justify-center gap-6">
+        <aside
+          className={cn(
+            full
+              ? 'flex shrink-0 items-center justify-center landscape:w-32'
+              : 'flex flex-col gap-6 rounded-xl border p-4 lg:sticky lg:top-4 lg:max-h-[calc(100svh-2rem)] lg:overflow-y-auto',
+          )}
+        >
+          <ControlBar inline={full}>
             <MicButton tutor={tutor} state={micState(video)} />
             <Button
               variant="outline"
@@ -162,12 +195,12 @@ export function VideoLessonPage({ slug, onExit }: { slug: string; onExit: () => 
             >
               {mode === 'paused' ? <Play className="size-5" /> : <Pause className="size-5" />}
             </Button>
-          </div>
-          <div className="flex min-h-0 shrink-0 flex-col gap-2">
+          </ControlBar>
+          <div className={cn('flex min-h-0 shrink-0 flex-col gap-2', full && 'hidden')}>
             <h2 className="text-sm font-medium">{t(lesson, 'yourDoubts')}</h2>
             <VideoDoubtList className="max-h-64 lg:max-h-[40svh]" />
           </div>
-          <div className="flex min-h-0 shrink-0 flex-col gap-2">
+          <div className={cn('flex min-h-0 shrink-0 flex-col gap-2', full && 'hidden')}>
             <button
               type="button"
               aria-expanded={chaptersOpen}

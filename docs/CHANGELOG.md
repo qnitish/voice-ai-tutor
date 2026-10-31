@@ -13,6 +13,16 @@ Design docs:
 
 ---
 
+## 2026-10-31: Landing page, video-only home, native-style player (branch `feature/video-lesson`)
+
+- New landing page (`pages/LandingPage.tsx`, Motion for animation, real screenshots in `public/landing/`). Get started
+  leads to a name and class form; a returning guest goes straight to home.
+- Home lists only video lectures, with no language filter and a red Log out. Internal lesson tags are hidden on the
+  video lesson page. `VISIBLE_LESSONS` still decides what the API serves.
+- Video player: seek bar and full-screen button sit on the video and fade out (`useAutoHide`); custom full screen with
+  the mic in a rail (`useFullscreen`, `ControlBar`). The start card no longer repeats the title.
+- The mic permission is asked at lecture Start/Continue (`lib/mic.ts`), before the video plays.
+
 ## 2026-10-28 (late night): Spoken "Did you get it?" and recaps after checkpoint doubts (branch `feature/video-lesson`)
 
 - After every answer the teacher asks out loud: `VIDEO_GOT_IT_LINE` ("Did you get it? You can unmute yourself and
